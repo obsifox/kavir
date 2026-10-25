@@ -1,11 +1,14 @@
-# Project Charter — Blup (working name)
+# Project Charter — Kavir (working name)
 
 Date: 2026-10-26
 Origin: User request (Persian chat), delegated to the new-language-design skill workflow.
+Naming: the user changed the working name from "Blup" to "Kavir" on 2026-10-26
+(Persian: desert). Due diligence in decisions/name-due-diligence.md; the final name
+remains the user's checkpoint decision.
 
 ## Goal
 
-Design and build a brand-new programming language, working name **Blup**, and take its
+Design and build a brand-new programming language, working name **Kavir**, and take its
 compiler from zero to an honestly-labelled experimental **v0.1.0** published in a GitHub
 repository owned by the user.
 

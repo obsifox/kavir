@@ -30,5 +30,5 @@ Next three steps:
 3. Draft reports/feasibility-report.md + reports/dimension-tradeoffs.md, run
    check_evidence.py --gate, present the feasibility gate to the user.
 
-GitHub: private repo obsifox/blup (remote origin). Token handled via env var only,
-never stored in tracked files.
+GitHub: private repo obsifox/kavir (remote origin; renamed from blup on 2026-10-26 by
+user decision). Token handled via env var only, never stored in tracked files.
