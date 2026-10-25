@@ -97,3 +97,74 @@ Record each disagreement: claim ID(s), the sources on each side, and what would 
   survey: compile times top limiter (C-615, C-616).
 - Resolution: both from Rust project origins — benefit real, ergonomic cost real.
   Nystrom's "function coloring" criticism (S-628) remains an unfetched lead.
+
+## 11. JVM startup severity
+
+- Side A: S-205, S-209 — large server apps "may require seconds or even minutes";
+  warmup is a real phase (C-205).
+- Side B: S-224 — startup time has rarely mattered for long-running servers (C-224).
+- Status: conflicting (claim C-224). Scopes differ (CLI/serverless vs long-running
+  server); both kept.
+
+## 12. AOT strategy inside Oracle
+
+- Side A: S-210/S-211 — GraalVM Native Image is pure closed-world (fallback needs JVM).
+- Side B: S-209 — JEP 544: "It is not a goal to provide an AOT-only mode" (C-206).
+- Same vendor family; documented design disagreement, not independent confirmation.
+
+## 13. Do types reduce bugs?
+
+- Side A: S-320, S-327 — better code quality/understandability; productivity at scale.
+- Side B: S-327 (bug-proneness NOT significantly lower), S-328 — benefit ambiguous.
+- Resolution: types help reading/refactoring more than they measurably prevent bugs
+  in the studies fetched (C-304, C-306).
+
+## 14. Is gradual typing "the best of both worlds"?
+
+- Side A: S-305, S-302 — unsound-but-free gradual typing (C-301, C-302).
+- Side B: S-325, S-326 — sound gradual typing up to 100x slowdowns (C-305); S-328.
+- Resolution: a real fork (unsound-free vs sound-slow), not a solved problem (H C-320).
+
+## 15. memory_order_consume — standard vs practice (status: conflicting, claim C-509)
+
+- Side A: C11 N1570 (S-511/S-115) standardizes memory_order_consume.
+- Side B: WG21 P0668R5 (S-512/S-605) states it is "widely acknowledged to be unusable";
+  C++20 neutralizes it.
+- Practical reading: do not expose consume in a new language (feeds C-519).
+
+## 16. left-pad: whose fault?
+
+- Side A: npm Inc. — abrupt unpublishing caused the disruption; safeguards were the
+  fix (S-727, C-710).
+- Side B: community — fragility came from npm's design itself (global namespace for
+  tiny packages); founder's own post is a dead link (S-734, unfetched).
+- Facts agreed (C-710); cause disputed; Kavir implication recorded as C-730.
+
+## 17. Dart 2015 pivot: strategic listening or failure acknowledgment?
+
+- Side A: official post frames pivot positively (S-723).
+- Side B: HN discussion centers on Flutter, implying web goal failed (S-731, tertiary).
+- Causal claim stays C-721 (interpretation, unverified).
+
+## 18. ABI stability: freeze benefits vs evolution costs
+
+- Side A (freeze): Swift manifesto (S-518/S-222) — ABI stability enables OS-embedded
+  runtimes but persists "for the rest of the platform's lifetime" (C-220).
+- Side B (breaks anyway): GCC dual ABI (S-519) + LWN s390 (S-521) — even glibc/
+  libstdc++ took managed breaks (C-518); RHEL publishes compatibility-exception
+  guides (S-520).
+- Reading: stability is a policy choice with real persistent costs either way.
+
+## 19. Generic specialization strategy (C# reification vs Java erasure)
+
+- Side A: S-215 — .NET runtime knows generic element types (C-215 context).
+- Side B: S-208 — Java erasure; and S-213 — NativeAOT pays disk size for
+  pre-generated struct instantiations (C-210).
+- Resolution: neither choice is free; each origin documents its own trade-off's cost.
+
+## 20. Null-safety enforcement strength
+
+- Side A: Kotlin/Swift compile-time rejection in the type system (S-218, C-215).
+- Side B: C# warnings-only null-state analysis, runtime unchanged (S-214, C-216).
+- Design-space disagreement (soundness vs migration cost); both documented.
+

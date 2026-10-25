@@ -1,34 +1,36 @@
-phase: 1
+phase: 1 (feasibility report drafted; awaiting gate)
 gate: not passed
 last_session: 2026-10-26
-covered_workstreams: [W1, W4, W6]
+covered_workstreams: [W1, W2, W3, W4, W5, W6, W7, W8]
 
 Summary of last session:
-- Phase 0 done: charter written (charter/charter.md), workspace initialized, private
-  GitHub repo created (private by design until v0.1.0 readiness) and initial commits pushed.
-- Phase 1 evidence gathering started: W1 (systems languages), W4 (compilers/IR/backends),
-  W6 (memory/safety/concurrency) researched by three parallel researchers with primary
-  sources fetched and spot-verified by the coordinator (MSRC, QBE, JEP-333 checks passed).
-- Ledger: 85 sources, 71 claims (67 with fetched sources, 4 hypotheses). Six case studies
-  written. Ten conflict entries recorded in evidence/conflicting-evidence.md.
-- Dimension coverage after this session: 18 of 20 dimensions have >= 2 claims with a
-  primary-backed claim. Gaps: modules (1 claim), reproducibility (1 claim).
+- Project renamed Blup → Kavir by user decision (repo, charter, docs; due diligence
+  in decisions/name-due-diligence.md — name clean on GitHub/npm/crates.io/PyPI).
+- Phase 1 research completed for ALL EIGHT workstreams: ledger now 199 sources /
+  169 claims (165 sourced + 4+ hypotheses), 15 case studies, 20 documented conflicts.
+- check_evidence.py: zero errors; all 20 quality dimensions have ≥2 claims with
+  primary backing (modules=16, reproducibility=13 — previous gaps filled).
+- reports/feasibility-report.md and reports/dimension-tradeoffs.md drafted (DRAFT
+  status — gate not yet requested).
+- Coordinator spot-verified 6 sources across sessions (MSRC, QBE, JEP-333, GraalVM
+  closed-world, npm left-pad, Cargo lockfile) — all matched fetch proofs.
+- Repo: private obsifox/kavir, 4 commits pushed.
 
 Open questions:
-- Independent Cranelift-vs-LLVM and GCC-vs-LLVM code-quality benchmarks (unknown).
-- Region/arena allocation literature (Cyclone paper unreachable, S-630 lead).
-- Checked exceptions vs results: no controlled study either way (conflict #7).
-- GC latency criticism: single-vendor pause numbers only (conflict #9).
-- Bun Zig-to-Rust rewrite attribution needs Bun's own announcement (conflict #4).
+- Trademark database search (USPTO/EUIPO/WIPO) — user task before public release.
+- Experiments before architecture decisions: backend probe (LLVM/Cranelift/QBE),
+  ownership-ergonomics probe, lockfile reproducibility probe, FFI probe
+  (feasibility-report section 8).
+- Region-allocation literature (S-630) and HOPL papers (S-736) still unfetched leads.
 
 Next three steps:
-1. Research W2 (managed/VM languages) + W3 (dynamic/productivity languages) — fills
-   modules, stdlib, evolution-compat gaps (generics retrofit stories, package tooling).
-2. Research W5 (hardware/ABI) + W7 (ecosystem/tooling) + W8 (failures/adoption) — fills
-   remaining dimension gaps incl. reproducibility (lockfiles, reproducible builds) and
-   modules (package managers).
-3. Draft reports/feasibility-report.md + reports/dimension-tradeoffs.md, run
-   check_evidence.py --gate, present the feasibility gate to the user.
+1. USER GATE: present feasibility report summary; user approves / waives / requests
+   more research (checkpoint 1 of the skill).
+2. If passed/waived: Phase 2 ADRs in dependency order — purpose/scope, execution
+   model, backend strategy (after experiment 1), memory model, type system, error
+   handling, concurrency, modules, FFI, syntax, v0.1.0 scope.
+3. Then Phase 3 prototype slice (lexer → parser → AST → checker → backend) with
+   tests + conformance suite from day one.
 
-GitHub: private repo obsifox/kavir (remote origin; renamed from blup on 2026-10-26 by
-user decision). Token handled via env var only, never stored in tracked files.
+GitHub: private repo obsifox/kavir (remote origin). Token handled via env var only,
+never stored in tracked files; not revoked or deleted (user instruction).
