@@ -31,3 +31,4 @@ fuzz-crash-*
 .vscode/
 *.swp
 .DS_Store
+worklog.md
