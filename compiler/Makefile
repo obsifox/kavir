@@ -8,6 +8,11 @@ HDR := src/kavir.h
 
 CFLAGS ?= -std=c17 -O2 -Wall -Wextra -Werror
 
+# M1.2 fix (verification finding F1): the libFuzzer harness must NOT link
+# the CLI driver (main.c defines main, which collides with libFuzzer's
+# own main). It only needs the pipeline stages.
+FUZZ_SRC := $(filter-out src/main.c,$(SRC))
+
 all: kavir
 
 kavir: $(SRC) $(HDR)
@@ -27,7 +32,7 @@ kavir-libfuzzer: $(SRC) $(HDR) fuzz/fuzz_frontend.c
 	        exit 1; }
 	clang -std=c17 -g -O1 -fsanitize=fuzzer,address,undefined \
 	        -fno-sanitize-recover=all -fno-omit-frame-pointer \
-	        -Wall -Wextra -o $@ $(SRC) fuzz/fuzz_frontend.c
+	        -Wall -Wextra -o $@ $(FUZZ_SRC) fuzz/fuzz_frontend.c
 
 test: kavir
 	sh tests/run.sh

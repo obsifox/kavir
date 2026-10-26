@@ -8,10 +8,12 @@
  *   make kavir-libfuzzer          (errors out with guidance if no clang)
  *   make fuzz-libfuzzer           (runs it against corpus/ for 60s)
  *
- * Equivalent manual invocation:
+ * Equivalent manual invocation (note: main.c is EXCLUDED — libFuzzer
+ * provides its own main):
  *   clang -std=c17 -g -O1 -fsanitize=fuzzer,address,undefined \
  *     -fno-sanitize-recover=all -fno-omit-frame-pointer -Wall -Wextra \
- *     -o kavir-libfuzzer src/*.c fuzz/fuzz_frontend.c
+ *     -o kavir-libfuzzer src/lexer.c src/parser.c src/check.c \
+ *     src/ir.c src/interp.c src/target_x86_64_linux.c fuzz/fuzz_frontend.c
  *   mkdir -p corpus && ./kavir-libfuzzer corpus -max_len=2048 \
  *     -print_final_stats=1 -detect_leaks=0
  *
