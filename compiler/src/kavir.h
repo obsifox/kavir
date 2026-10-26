@@ -20,12 +20,16 @@
 
 /* ---------------- capacity limits (ADR-008 decision 7) ----------------
  * Each limit is reported as a clean diagnostic when exceeded; none may
- * be crossed by an out-of-bounds access. */
-#define KAVIR_MAX_TOKENS 256
-#define KAVIR_MAX_FNS 8
+ * be crossed by an out-of-bounds access.
+ *
+ * M3.1 (2026-10-26, user-mandated 50-function label-allocation test):
+ * TOKENS 256->2048, FNS 8->64, BLOCKS 128->256, EXPRS 256->1024.
+ * Everything else unchanged. All remain clean diagnostics. */
+#define KAVIR_MAX_TOKENS 2048
+#define KAVIR_MAX_FNS 64
 #define KAVIR_MAX_STMTS 32          /* statements per block */
-#define KAVIR_MAX_BLOCKS 128        /* block pool, program-wide */
-#define KAVIR_MAX_EXPRS 256         /* expression node pool, program-wide */
+#define KAVIR_MAX_BLOCKS 256        /* block pool, program-wide */
+#define KAVIR_MAX_EXPRS 1024        /* expression node pool, program-wide */
 #define KAVIR_MAX_INSTS 1024        /* IR instructions per function */
 #define KAVIR_MAX_LABELS 256        /* IR labels per function */
 #define KAVIR_MAX_NAME 64           /* identifiers: max 63 chars + NUL */
@@ -33,7 +37,10 @@
 #define KAVIR_MAX_STRINGS 32        /* string table, program-wide */
 #define KAVIR_MAX_CODE (1 << 18)    /* ELF image buffer: 256 KiB */
 #define KAVIR_MAX_ERR 256
-#define KAVIR_MAX_ARGS 8            /* arguments per call (ADR-010) */
+/* ADR-010 (M3.1 amendment makes the split explicit): at most 8
+ * arguments per call = 6 in registers (RDI RSI RDX RCX R8 R9) + up to
+ * 2 on the stack (right-to-left placement, left-to-right evaluation). */
+#define KAVIR_MAX_ARGS 8
 #define KAVIR_MAX_VARS 64           /* params + lets per function */
 /* USER DECISION 2026-10-26 (ADR-010 section 3b): recursion depth limit,
  * enforced IDENTICALLY by the interpreter (frame count) and the ELF

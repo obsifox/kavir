@@ -183,6 +183,11 @@ expression nodes per program; 1024 IR instructions per function; 32
 string literals × 127 bytes; 1024 trap sites; 256 KiB image buffer;
 trap paths ≤ 200 bytes. These are M2 limits, raised additively later.
 
+**Amendment 2026-10-26 (M3.1, user-mandated 50-function label test):**
+TOKENS 256→2048, FNS 8→64, BLOCKS 128→256, EXPRS 256→1024. All other
+values unchanged; every limit remains a clean diagnostic. Recorded in
+src/kavir.h and reports/milestones/M3.md (M3.1 section).
+
 ## Decision 8 — Verification for M2
 
 1. **Independent oracle.** `tests/reference.py` is a third

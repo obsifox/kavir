@@ -200,6 +200,31 @@ implementation conforms to them.
    wording: mutable-`let` with `=` statements (recommended; no `mut`
    keyword) — or the ADR-005 v3 "let/let mut" pair.
 
+## 6. Amendment 2026-10-26 (M3.1): argument capacity split made explicit
+
+M3.1 review (user instruction: "if ADR-010 says max 6 but the code
+accepts 8, reconcile and record") checked the wording against the
+code. FINDING: no 6-vs-8 contradiction existed — sections 2 and 4.9
+already pinned KAVIR_MAX_ARGS = 8 with stack passing. This amendment
+makes the register/stack split explicit so the ADR is self-contained:
+
+- Total arguments per call: **at most 8** (parser-enforced, clean
+  diagnostic "too many arguments (limit 8 per call)").
+- Split: arguments 1-6 in RDI RSI RDX RCX R8 R9; arguments 7-8 (up to
+  2) on the stack: arg 7 at [rsp+0] at the call / [rbp+16] in the
+  callee, arg 8 at [rsp+8] / [rbp+24] — right-to-left placement,
+  left-to-right EVALUATION (decision 1 unchanged).
+- Outgoing area rounding: `((nstack + 1) & ~1) * 8` bytes — an odd
+  stack-arg count is padded to 16 so RSP stays 16-byte aligned at
+  every call. With the 8-arg cap the largest outgoing area is 16
+  bytes (2 stack args need no pad).
+- Permanent tests (M3.1): cases_m3/call_args_6.k (register-only,
+  weighted), call_args_7.k (1 stack arg + odd-count padding path),
+  call_args_8.k (2 stack args), stack_arg_order.k (bit-encoded
+  positions incl. a nested 8-arg call inside a stack argument), and
+  tests/run_m31.py (ELF structural scan: every sub/add rsp immediate
+  is a multiple of 16; the expected `sub rsp,16` sites are present).
+
 ## Evidence references
 
 - x86-64 psABI (System V AMD64 ABI): integer args RDI RSI RDX RCX R8

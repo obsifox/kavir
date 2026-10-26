@@ -91,24 +91,35 @@
 #define KAVIR_MAX_ABS 4096
 #define KAVIR_MAX_STUBS 1024
 
-/* label ids: 0..7 fixed, 8..1031 trap stubs (incl. depth stubs), then
- * ad-hoc div-skip labels, then LBL_IR_BASE + fn_idx*KAVIR_MAX_INSTS +
- * instruction index (PER FUNCTION: one function's code generation must
- * not see another function's label positions), then LBL_FN_BASE +
- * function index. */
-#define LBL_TRAP_EXIT 0
-#define LBL_RT 1
-#define LBL_RT_CONVERT 2
-#define LBL_RT_OUT 3
-#define LBL_ADHOC_BASE 8
-#define LBL_IR_BASE 8192
-#define LBL_FN_BASE (LBL_IR_BASE + KAVIR_MAX_FNS * KAVIR_MAX_INSTS)
-#define KAVIR_MAX_LBL (LBL_FN_BASE + KAVIR_MAX_FNS)
-
-/* per-function IR branch label */
-static int ir_label(int fn_idx, int inst_idx) {
-    return LBL_IR_BASE + fn_idx * KAVIR_MAX_INSTS + inst_idx;
-}
+/* ---- labels: ONE allocator, ONE space (M3.1 redesign) ----
+ * History: M1..M3 carved the label id space into hand-maintained
+ * ranges (fixed 0..7, trap stubs at LBL_ADHOC_BASE+nstub, ad-hoc
+ * div-skip labels above the stub range, per-function IR labels at
+ * LBL_IR_BASE, function labels at LBL_FN_BASE) guarded by INDEPENDENT
+ * counters that merely happened not to overlap. That design produced
+ * both M3 bring-up label bugs (global IR labels overwritten across
+ * functions; per-function ad-hoc collisions) and survived only by
+ * magic constants. M3.1 replaces the carved ranges with ONE
+ * sequential allocator: every label is minted by lbl_new(), so two
+ * label users can never receive the same id, and the only failure
+ * mode is one clean "too many labels" diagnostic (ADR-008 decision 7:
+ * no limit is crossed by an out-of-bounds access).
+ * Per-class intern tables map (class, key) -> id on first use; the
+ * mint order is a pure function of the IR, so emitted bytes stay
+ * reproducible. */
+#define KAVIR_MAX_LBL 131072
+#define LBLID_NONE (-1)
+typedef enum { LF_TRAP_EXIT, LF_RT, LF_RT_CONVERT, LF_RT_OUT,
+               LF_COUNT } FixedLbl;
+static int g_fixed[LF_COUNT];          /* ids 0..3, minted first */
+static int g_lbl_pos[KAVIR_MAX_LBL];   /* id -> code offset; -1 unplaced */
+static int g_next_lbl;                 /* THE allocator counter */
+static int g_ir_lbl[KAVIR_MAX_FNS][KAVIR_MAX_INSTS]; /* intern table */
+static int g_ir_pos[KAVIR_MAX_FNS][KAVIR_MAX_INSTS]; /* code offset of
+    every IR instruction (recorded unconditionally during generation;
+    needed when a BACKWARD jump interns its target after the target's
+    code is already emitted) */
+static int g_fn_lbl[KAVIR_MAX_FNS];
 
 /* ---- tiny emitter ---- */
 
@@ -123,6 +134,45 @@ static int emit_fail(Emit *e, const char *msg) {
     if (e->err != NULL && e->errcap > 0)
         snprintf(e->err, (size_t)e->errcap, "%s", msg);
     return -1;
+}
+
+/* ---- the single label allocator ---- */
+
+/* The ONLY way to obtain a label id. Returns -1 (clean error already
+ * reported) when the one label space is exhausted. */
+static int lbl_new(Emit *e) {
+    if (g_next_lbl >= KAVIR_MAX_LBL) {
+        emit_fail(e, "too many labels (backend label space exhausted)");
+        return -1;
+    }
+    return g_next_lbl++;
+}
+
+/* IR branch label for (function, instruction), minted on first use.
+ * Forward references record a fixup and are placed when generation
+ * reaches the target; backward references get the target's already-
+ * recorded code offset immediately (so they patch in place). */
+static int ir_lbl(Emit *e, int fn_idx, int inst_idx) {
+    int l = g_ir_lbl[fn_idx][inst_idx];
+    if (l < 0) {
+        l = lbl_new(e);
+        if (l < 0) return -1;
+        g_ir_lbl[fn_idx][inst_idx] = l;
+        if (g_ir_pos[fn_idx][inst_idx] >= 0)
+            g_lbl_pos[l] = g_ir_pos[fn_idx][inst_idx];
+    }
+    return l;
+}
+
+/* Function entry label, minted on first use (calls may reference
+ * functions in any order; placement follows IR order). */
+static int fn_lbl(Emit *e, int fn_idx) {
+    int l = g_fn_lbl[fn_idx];
+    if (l < 0) {
+        l = lbl_new(e);
+        if (l >= 0) g_fn_lbl[fn_idx] = l;
+    }
+    return l;
 }
 
 static void put8(Emit *e, unsigned v) {
@@ -187,10 +237,6 @@ static int rot_add(const char *s, int len) {
 typedef struct { int at; int label; } Fixup;
 static Fixup g_fix[KAVIR_MAX_FIXUPS];
 static int g_nfix;
-static int g_lbl_pos[KAVIR_MAX_LBL];
-/* ad-hoc labels (div-skip) are GLOBAL across functions: a per-function
- * counter would collide when patching forward references at the end */
-static int g_nadhoc;
 
 static void fix_rel32(Emit *e, int at, int label) {
     if (g_lbl_pos[label] >= 0) {
@@ -399,15 +445,15 @@ static void emit_call(Emit *e, int label) {
 static void emit_print_i32_runtime(Emit *e) {
     /* kavirrt_print_i32: edi = i32 value; writes decimal to fd 1.
      * Clobbers rax, rcx, rdx, rsi, rdi, r9. */
-    place_lbl_at(e, LBL_RT);
+    place_lbl_at(e, g_fixed[LF_RT]);
     emit_sub_rsp_imm(e, 48);            /* digit scratch below the frame  */
     emit_movsxd_rax_edi(e);             /* rax = (i64)value               */
     emit_lea_r9_rsp40(e);               /* r9 = digits end pointer        */
     emit_mov_ecx_imm32(e, 10);          /* divisor                        */
     emit_test_edi_edi(e);
-    emit_jcc(e, JCC_NS, LBL_RT_CONVERT); /* positive: skip the negate     */
+    emit_jcc(e, JCC_NS, g_fixed[LF_RT_CONVERT]); /* positive: skip negate */
     emit_neg_rax(e);                    /* 64-bit neg: safe for INT32_MIN */
-    place_lbl_at(e, LBL_RT_CONVERT);
+    place_lbl_at(e, g_fixed[LF_RT_CONVERT]);
     /* digit loop (runs at least once, so 0 prints as "0") */
     emit_xor_edx_edx(e);
     emit_div_rcx(e);                    /* rax = q, rdx = digit           */
@@ -415,12 +461,12 @@ static void emit_print_i32_runtime(Emit *e) {
     emit_dec_r9(e);
     emit_mov_r9_dl(e);
     emit_test_rax_rax(e);
-    emit_jcc(e, JCC_NE, LBL_RT_CONVERT); /* backward, already placed      */
+    emit_jcc(e, JCC_NE, g_fixed[LF_RT_CONVERT]); /* backward, placed      */
     emit_test_edi_edi(e);
-    emit_jcc(e, JCC_NS, LBL_RT_OUT);
+    emit_jcc(e, JCC_NS, g_fixed[LF_RT_OUT]);
     emit_dec_r9(e);
     emit_mov_r9_dash(e);                /* leading '-'                    */
-    place_lbl_at(e, LBL_RT_OUT);
+    place_lbl_at(e, g_fixed[LF_RT_OUT]);
     emit_mov_rsi_r9(e);                 /* buf                            */
     emit_mov_rdx_rsp(e);
     emit_add_rdx_40(e);                 /* end - buf = length             */
@@ -450,7 +496,8 @@ static int add_trap_stub(Emit *e, const char *msg, int len) {
         emit_fail(e, "too many trap sites");
         return -1;
     }
-    lbl = LBL_ADHOC_BASE + g_nstubs;
+    lbl = lbl_new(e); /* one space: no fixed offsets for stubs */
+    if (lbl < 0) return -1;
     g_stubs[g_nstubs].label = lbl;
     g_stubs[g_nstubs].rot = rot;
     g_nstubs++;
@@ -567,8 +614,12 @@ static int gen_function(Emit *e, const char *file, const IrModule *mod,
 
     for (k = 0; k < fn->ninsts; k++) {
         const IrInst *in = &fn->insts[k];
-        /* branch target of IR inst k is the start of its machine code */
-        g_lbl_pos[ir_label(fn_idx, k)] = e->size;
+        /* record this instruction's code offset for later BACKWARD
+         * references, and place the label if a FORWARD jump already
+         * interned it (M3.1: ids are minted on first reference) */
+        g_ir_pos[fn_idx][k] = e->size;
+        if (g_ir_lbl[fn_idx][k] >= 0)
+            place_lbl_at(e, g_ir_lbl[fn_idx][k]);
 
         switch (in->op) {
         case IR_CONST:
@@ -589,18 +640,15 @@ static int gen_function(Emit *e, const char *file, const IrModule *mod,
         }
 
         case IR_DIV: case IR_REM: {
-            int rot0, rot1, lbl0, lbl1, skip_lbl;
-            rot0 = add_divzero_stub(e, file, in->line, in->col);
-            if (rot0 < 0) return -1;
-            lbl0 = g_stubs[g_nstubs - 1].label;
-            rot1 = add_overflow_stub(e, file, in->line, in->col);
-            if (rot1 < 0) return -1;
-            lbl1 = g_stubs[g_nstubs - 1].label;
-            if (g_nadhoc >= LBL_IR_BASE) {
-                emit_fail(e, "too many division sites");
-                return -1;
-            }
-            skip_lbl = g_nadhoc++;
+            int lbl0, lbl1, skip_lbl;
+            lbl0 = add_divzero_stub(e, file, in->line, in->col);
+            if (lbl0 < 0) return -1;
+            lbl1 = add_overflow_stub(e, file, in->line, in->col);
+            if (lbl1 < 0) return -1;
+            /* ad-hoc skip label: minted from the ONE allocator (M3.1);
+             * the old global-counter-below-LBL_IR_BASE scheme is gone */
+            skip_lbl = lbl_new(e);
+            if (skip_lbl < 0) return -1;
 
             emit_mov_r_m(e, 0, -8 * (in->src1 + 1));   /* eax = lhs      */
             emit_mov_r_m(e, 1, -8 * (in->src2 + 1));   /* ecx = rhs      */
@@ -647,7 +695,11 @@ static int gen_function(Emit *e, const char *file, const IrModule *mod,
                 emit_load_arg_reg(e, i, in->args[i]);
             emit_mov_r11d_m(e, depth_disp);
             emit_inc_r11d(e);
-            emit_call(e, LBL_FN_BASE + in->fn_idx);
+            {
+                int fl = fn_lbl(e, in->fn_idx);
+                if (fl < 0) return -1;
+                emit_call(e, fl);
+            }
             if (nstack) emit_add_rsp_imm(e, stack_bytes);
             emit_mov_m_r(e, -8 * (in->dest + 1), 0);
             break;
@@ -655,7 +707,7 @@ static int gen_function(Emit *e, const char *file, const IrModule *mod,
 
         case IR_PRINT:
             emit_mov_r_m(e, 7, -8 * (in->dest + 1));   /* edi = value    */
-            emit_call(e, LBL_RT);
+            emit_call(e, g_fixed[LF_RT]);
             break;
 
         case IR_PRINT_STR:
@@ -667,15 +719,22 @@ static int gen_function(Emit *e, const char *file, const IrModule *mod,
             emit_syscall(e);
             break;
 
-        case IR_JMP:
-            emit_jmp(e, ir_label(fn_idx, in->target));
+        case IR_JMP: {
+            int l = ir_lbl(e, fn_idx, in->target);
+            if (l < 0) return -1;
+            emit_jmp(e, l);
             break;
+        }
 
-        case IR_JMPZ:
+        case IR_JMPZ: {
+            int l;
             emit_mov_r_m(e, 0, -8 * (in->src1 + 1));
             emit_test_eax_eax(e);
-            emit_jcc(e, JCC_E, ir_label(fn_idx, in->target));
+            l = ir_lbl(e, fn_idx, in->target);
+            if (l < 0) return -1;
+            emit_jcc(e, JCC_E, l);
             break;
+        }
 
         case IR_RET:
             emit_mov_r_m(e, 0, -8 * (in->src1 + 1));
@@ -765,12 +824,25 @@ int target_x86_64_linux_emit(const IrModule *mod, unsigned char *buf,
     e.buf = buf; e.cap = cap; e.size = 0;
     e.err = errbuf; e.errcap = errcap;
 
-    /* reset per-emit static state (the fuzz harness emits repeatedly) */
+    /* reset per-emit static state (the fuzz harness emits repeatedly):
+     * every intern table and the ONE allocator counter start fresh, so
+     * no label id or position can leak between emits */
     for (i = 0; i < KAVIR_MAX_LBL; i++) g_lbl_pos[i] = -1;
+    for (i = 0; i < KAVIR_MAX_FNS; i++) g_fn_lbl[i] = LBLID_NONE;
+    for (i = 0; i < KAVIR_MAX_FNS; i++) {
+        int k2;
+        for (k2 = 0; k2 < KAVIR_MAX_INSTS; k2++) {
+            g_ir_lbl[i][k2] = LBLID_NONE;
+            g_ir_pos[i][k2] = -1;
+        }
+    }
     g_nfix = 0; g_nabs = 0; g_nrots = 0; g_nstubs = 0;
-    /* ad-hoc labels live ABOVE the trap-stub range (8..1031) and below
-     * the per-function IR label space (LBL_IR_BASE..) */
-    g_nadhoc = LBL_ADHOC_BASE + KAVIR_MAX_STUBS;
+    g_next_lbl = 0;
+    /* the four fixed labels are always the FIRST ids minted */
+    for (i = 0; i < LF_COUNT; i++) {
+        g_fixed[i] = lbl_new(&e);
+        if (g_fixed[i] < 0) return -1;
+    }
 
     file = (mod->file != NULL) ? mod->file : "?";
 
@@ -794,11 +866,14 @@ int target_x86_64_linux_emit(const IrModule *mod, unsigned char *buf,
                              "(max 200 bytes)");
 
     /* all functions, in IR order (every prologue registers its depth
-     * stub in the cold pool; arith/div stubs register inline). IR branch
-     * labels are per-function (ir_label) so generation order never
-     * leaks positions across functions. */
+     * stub in the cold pool; arith/div stubs register inline). Function
+     * entry labels are interned from the ONE space; IR branch labels
+     * are interned per (function, instruction), so generation order
+     * never leaks positions across functions. */
     for (i = 0; i < mod->nfns; i++) {
-        place_lbl_at(&e, LBL_FN_BASE + i);
+        int fl = fn_lbl(&e, i);
+        if (fl < 0) return -1;
+        place_lbl_at(&e, fl);
         rc = gen_function(&e, file, mod, i, &mod->fns[i]);
         if (rc != 0) return -1;
     }
@@ -812,10 +887,10 @@ int target_x86_64_linux_emit(const IrModule *mod, unsigned char *buf,
         emit_mov_edi_imm32(&e, LIN_FD_STDERR);
         emit_mov_eax_imm32(&e, LIN_WRITE_SYSCALL);
         emit_syscall(&e);
-        emit_jmp(&e, LBL_TRAP_EXIT);
+        emit_jmp(&e, g_fixed[LF_TRAP_EXIT]);
     }
     /* shared trap exit: exit_group(101) (ADR-008 decision 3) */
-    place_lbl_at(&e, LBL_TRAP_EXIT);
+    place_lbl_at(&e, g_fixed[LF_TRAP_EXIT]);
     emit_mov_edi_imm32(&e, KAVIR_TRAP_EXIT_CODE);
     emit_mov_eax_imm32(&e, LIN_EXIT_GROUP_SYSCALL);
     emit_syscall(&e);
@@ -824,7 +899,11 @@ int target_x86_64_linux_emit(const IrModule *mod, unsigned char *buf,
     emit_print_i32_runtime(&e);
     start_pos = e.size;
     emit_xor_r11d_r11d(&e);
-    emit_call(&e, LBL_FN_BASE + main_idx);
+    {
+        int fl = fn_lbl(&e, main_idx);
+        if (fl < 0) return -1;
+        emit_call(&e, fl);
+    }
     emit_mov_edi_eax(&e);
     emit_mov_eax_imm32(&e, LIN_EXIT_GROUP_SYSCALL);
     emit_syscall(&e);

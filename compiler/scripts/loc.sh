@@ -8,8 +8,10 @@
 #   "Harness C"   = fuzz/fuzz_frontend.c (libFuzzer harness).
 #   "Tooling PY"  = tests/reference.py (independent oracle),
 #                   tests/run_m2.py (M2 runner), tests/run_m3.py (M3
-#                   runner), scripts/fuzz.py (fuzz driver),
-#                   scripts/gen_m3_fixtures.py (fixture generator).
+#                   runner), tests/run_m31.py (M3.1 ELF structural
+#                   checks), scripts/fuzz.py (fuzz driver),
+#                   scripts/gen_m3_fixtures.py +
+#                   scripts/gen_m31_fixtures.py (fixture generators).
 #   "Suite SH"    = tests/run.sh (M1.1 shell suite).
 #   Fixtures      = number of .k case files (not counted as LOC).
 # None of these are summed into "C LOC"; categories are never mixed.
@@ -37,8 +39,16 @@ printf '%8d  Tooling PY LOC (tests/run_m2.py — M2 runner)\n' \
     "$(wc -l < tests/run_m2.py)"
 printf '%8d  Tooling PY LOC (tests/run_m3.py — M3 runner)\n' \
     "$(wc -l < tests/run_m3.py)"
+if [ -f tests/run_m31.py ]; then
+    printf '%8d  Tooling PY LOC (tests/run_m31.py — M3.1 ELF checks)\n' \
+        "$(wc -l < tests/run_m31.py)"
+fi
 printf '%8d  Tooling PY LOC (scripts/gen_m3_fixtures.py — M3 fixtures)\n' \
     "$(wc -l < scripts/gen_m3_fixtures.py)"
+if [ -f scripts/gen_m31_fixtures.py ]; then
+    printf '%8d  Tooling PY LOC (scripts/gen_m31_fixtures.py — M3.1 fixtures)\n' \
+        "$(wc -l < scripts/gen_m31_fixtures.py)"
+fi
 printf '%8d  Tooling PY LOC (scripts/fuzz.py — fuzz driver)\n' \
     "$(wc -l < scripts/fuzz.py)"
 printf '%8d  Suite SH LOC   (tests/run.sh — M1.1 suite)\n' \

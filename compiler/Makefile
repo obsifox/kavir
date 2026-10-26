@@ -38,6 +38,7 @@ test: kavir
 	sh tests/run.sh
 	python3 tests/run_m2.py
 	python3 tests/run_m3.py
+	python3 tests/run_m31.py
 
 # quick sanitizer fuzz (grammar-aware + mutation driver, gcc-friendly)
 fuzz: kavir-asan

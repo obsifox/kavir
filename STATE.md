@@ -1,4 +1,4 @@
-phase: 3 (M1 + M1.1 + M2 + M3 COMPLETE — AUTHOR-APPROVED, not
+phase: 3 (M1 + M1.1 + M2 + M3 + M3.1 COMPLETE — AUTHOR-APPROVED, not
        independently verified; M4 next; third-party verification of
        28ba9f1 pending; push of 8aa46cd and successors pending GH_TOKEN)
 gate: passed (user approved 2026-10-26, chat reply "قبوله")
@@ -149,6 +149,32 @@ Summary of last session:
   honest tests). Coordinator opinion recorded in M3.md: KEEP v0.1.0
   scope; next scope conversation at M4 completion.
 
+- M3.1 HARDENING COMPLETE (2026-10-26, user-specified scope, no new
+  language features): (1) backend label allocation redesigned to ONE
+  sequential allocator with per-class intern tables — the carved
+  hand-maintained ranges (two counters + magic constants) that caused
+  both M3 label bugs are structurally gone; targeted 50-function
+  fixtures (branch + division per fn, 3 whiles, trap sites in several
+  fns, one div-zero and one overflow variant) added; the redesign's
+  own first version broke while back-edges and was caught by run_m3
+  before any claim. (2) Permanent depth-boundary tests: 1024 frames
+  legal / entering frame 1024 traps (names the callee, exit 101),
+  depth-1025 clamp, stdout-order-before-trap, mutual-recursion both
+  sides of the boundary. (3) Arg-passing: ADR-010 §6 amendment (no
+  6-vs-8 contradiction existed; split now explicit: 6 register + up
+  to 2 stack, ((nstack+1)&~1)*8 rounding); weighted 6/7/8-arg +
+  bit-encoded stack-order fixtures; new tests/run_m31.py verifies
+  every sub/add rsp immediate is a 16-multiple in the emitted ELF
+  (5/5). (4) libFuzzer NOT RUN for M3/M3.1 (no clang, no sudo) — no
+  "fuzz clean" phrasing anywhere. (5) LOC-extrapolation caveat added
+  to the M3 calibration. Capacities raised (ADR-008 §7 amendment):
+  TOKENS 2048, FNS 64, BLOCKS 256, EXPRS 1024. Re-verification on the
+  new build: M1 16/16, M2 39/39, M3 51/51, run_m31 5/5; diff fuzz
+  80,000 inputs (seed 20261026) → 59,037 accepted three-way, 20,963
+  rejected, 0 problems, 256.9 s; ASan fuzz 20,000 × 3 = 60,000 execs
+  (seed 424242), 0 findings, 289.1 s. C LOC 3369 (+86). M3/M3.1 stay
+  AUTHOR-APPROVED ONLY.
+
 Open questions:
 - Trademark database search (USPTO/EUIPO/WIPO) — user task before public release.
 - Experiments: E1 backend probe limited in this sandbox (no root → no clang;
@@ -172,9 +198,10 @@ Next three steps:
    stops for the user first.
 2. At M4 completion: re-check the m5cut trigger with aggregate costs
    measured (the first scope conversation that matters).
-3. Push pending GH_TOKEN (8aa46cd, 4d0921b, M3 commit — token
-   env-var-only, never written anywhere); third-party verification
-   continues on pinned hashes (M3.md has the exact commands).
+3. Push pending GH_TOKEN (8aa46cd, 4d0921b, M3 commit, M3.1 commit —
+   token env-var-only, never written anywhere); third-party
+   verification continues on pinned hashes (M3.md has the exact
+   commands).
 
 OPEN (user decision pending, NOTHING changed 2026-10-26): README.md and
 STATE.md call the repo private but obsifox/kavir is currently PUBLIC.
