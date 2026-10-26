@@ -53,6 +53,14 @@ static int find_vreg(const IrBuild *b, const char *name) {
     return -1;
 }
 
+/* Type ids are checker annotations; words per type come from the
+ * program's own type table (mirrors check.c's ty_words). */
+static int ty_words(const Program *prog, int ty) {
+    if (ty <= KAVIR_TY_I32) return 1;
+    if (ty > prog->ntypes) return 1; /* unreachable on checked programs */
+    return prog->types[ty - 1].size_words;
+}
+
 static int irf_add(IrBuild *b, const IrInst *in) {
     if (b->out->ninsts >= KAVIR_MAX_INSTS) {
         kavir_error(b->file, in->line, in->col,
@@ -89,9 +97,12 @@ static void fix_labels(IrBuild *b) {
     }
 }
 
-/* Lowers an expression; returns the vreg holding its value, or -1. */
+/* Lowers an expression; returns the BASE vreg holding its value (a
+ * scalar uses one vreg; an aggregate of k words uses k consecutive
+ * vregs), or -1. Type ids come from the checker's annotations. */
 static int lower_expr(IrBuild *b, const Program *prog, int eidx) {
     const Expr *e = &prog->exprs[eidx];
+    int words = ty_words(prog, e->ty);
 
     switch (e->kind) {
     case EX_INT: {
@@ -131,14 +142,18 @@ static int lower_expr(IrBuild *b, const Program *prog, int eidx) {
                         "internal: unresolved variable '%s'", e->name);
             return -1;
         }
-        memset(&in, 0, sizeof(in));
-        in.op = IR_COPY;
-        in.dest = b->vreg++;
-        in.src1 = v;
-        in.line = e->line;
-        in.col = e->col;
-        if (irf_add(b, &in) != 0) return -1;
-        return in.dest;
+        if (words == 1) {
+            memset(&in, 0, sizeof(in));
+            in.op = IR_COPY;
+            in.dest = b->vreg++;
+            in.src1 = v;
+            in.line = e->line;
+            in.col = e->col;
+            if (irf_add(b, &in) != 0) return -1;
+            return in.dest;
+        }
+        return v; /* aggregates are read in place (value semantics per
+                   * statement: nothing mutates between statements) */
     }
     case EX_CALL: {
         int fi, k, dst;
@@ -156,15 +171,299 @@ static int lower_expr(IrBuild *b, const Program *prog, int eidx) {
             int a = lower_expr(b, prog, e->args[k]);
             if (a < 0) return -1;
             in.args[k] = a; /* left-to-right, before the call */
+            in.arg_words[k] = ty_words(prog,
+                                       prog->exprs[e->args[k]].ty);
         }
         in.op = IR_CALL;
-        in.dest = b->vreg++;
+        in.ret_words = ty_words(prog, prog->fns[fi].ret_ty);
+        in.dest = b->vreg;
+        b->vreg += in.ret_words; /* dest..dest+ret_words-1 */
         in.fn_idx = fi;
         in.nargs = e->nargs;
         in.line = e->line;
         in.col = e->col;
         dst = in.dest;
         if (irf_add(b, &in) != 0) return -1;
+        return dst;
+    }
+    case EX_STRUCT_LIT: {
+        const TypeDef *td = &prog->types[e->ty - 1];
+        int dst = b->vreg, k;
+        IrInst in;
+        b->vreg += words;
+        for (k = 0; k < e->nargs; k++) {
+            int v = lower_expr(b, prog, e->args[k]);
+            int off = td->field_off[k];
+            int w = ty_words(prog, td->field_ty[k]);
+            int j;
+            if (v < 0) return -1;
+            for (j = 0; j < w; j++) {
+                memset(&in, 0, sizeof(in));
+                in.op = IR_COPY;
+                in.dest = dst + off + j;
+                in.src1 = v + j;
+                in.line = e->line;
+                in.col = e->col;
+                if (irf_add(b, &in) != 0) return -1;
+            }
+        }
+        return dst;
+    }
+    case EX_ENUM_CTOR: {
+        const TypeDef *td = &prog->types[e->ty - 1];
+        int variant = e->aux;
+        int dst = b->vreg, k, word_off = 1, j;
+        IrInst in;
+        b->vreg += words;
+        memset(&in, 0, sizeof(in));
+        in.op = IR_CONST;
+        in.dest = b->vreg++;
+        in.val = variant; /* tag = variant index (ADR-011) */
+        in.line = e->line;
+        in.col = e->col;
+        if (irf_add(b, &in) != 0) return -1;
+        memset(&in, 0, sizeof(in));
+        in.op = IR_COPY;
+        in.dest = dst;
+        in.src1 = b->vreg - 1;
+        in.line = e->line;
+        in.col = e->col;
+        if (irf_add(b, &in) != 0) return -1;
+        for (j = 0; j < e->nargs; j++) {
+            int v = lower_expr(b, prog, e->args[j]);
+            int w = ty_words(prog, td->variant_ty[variant][j]);
+            if (v < 0) return -1;
+            for (k = 0; k < w; k++) {
+                memset(&in, 0, sizeof(in));
+                in.op = IR_COPY;
+                in.dest = dst + word_off + k;
+                in.src1 = v + k;
+                in.line = e->line;
+                in.col = e->col;
+                if (irf_add(b, &in) != 0) return -1;
+            }
+            word_off += w;
+        }
+        return dst;
+    }
+    case EX_OPT_CTOR: {
+        const TypeDef *td = &prog->types[e->ty - 1];
+        int dst = b->vreg;
+        IrInst in;
+        b->vreg += words;
+        memset(&in, 0, sizeof(in));
+        in.op = IR_CONST;
+        in.dest = b->vreg++;
+        in.val = e->aux; /* 0 = None, 1 = Some */
+        in.line = e->line;
+        in.col = e->col;
+        if (irf_add(b, &in) != 0) return -1;
+        memset(&in, 0, sizeof(in));
+        in.op = IR_COPY;
+        in.dest = dst;
+        in.src1 = b->vreg - 1;
+        in.line = e->line;
+        in.col = e->col;
+        if (irf_add(b, &in) != 0) return -1;
+        if (e->aux == 1) {
+            int v = lower_expr(b, prog, e->args[0]);
+            int w = ty_words(prog, td->elem_ty);
+            int j;
+            if (v < 0) return -1;
+            for (j = 0; j < w; j++) {
+                memset(&in, 0, sizeof(in));
+                in.op = IR_COPY;
+                in.dest = dst + 1 + j;
+                in.src1 = v + j;
+                in.line = e->line;
+                in.col = e->col;
+                if (irf_add(b, &in) != 0) return -1;
+            }
+        }
+        return dst;
+    }
+    case EX_FIELD: {
+        int base, dst, j;
+        IrInst in;
+        if (e->b == 1) {
+            /* bare enum ctor (Type.Variant, no payload): the checker
+             * resolved e->aux to the variant index */
+            const TypeDef *td = &prog->types[e->ty - 1];
+            dst = b->vreg;
+            b->vreg += words;
+            memset(&in, 0, sizeof(in));
+            in.op = IR_CONST;
+            in.dest = b->vreg++;
+            in.val = e->aux;
+            in.line = e->line;
+            in.col = e->col;
+            if (irf_add(b, &in) != 0) return -1;
+            memset(&in, 0, sizeof(in));
+            in.op = IR_COPY;
+            in.dest = dst;
+            in.src1 = b->vreg - 1;
+            in.line = e->line;
+            in.col = e->col;
+            if (irf_add(b, &in) != 0) return -1;
+            (void)td;
+            return dst;
+        }
+        base = lower_expr(b, prog, e->a);
+        if (base < 0) return -1;
+        dst = b->vreg;
+        b->vreg += words;
+        for (j = 0; j < words; j++) {
+            memset(&in, 0, sizeof(in));
+            in.op = IR_COPY;
+            in.dest = dst + j;
+            in.src1 = base + e->aux + j;
+            in.line = e->line;
+            in.col = e->col;
+            if (irf_add(b, &in) != 0) return -1;
+        }
+        return dst;
+    }
+    case EX_MATCH: {
+        int scrut = lower_expr(b, prog, e->a);
+        int dst = b->vreg++;
+        int l_end = new_label(b);
+        int arm0 = e->aux, narms = e->nargs;
+        int i, any_wild = 0;
+        if (scrut < 0) return -1;
+        if (l_end < 0) return -1;
+        for (i = 0; i < narms; i++) {
+            const MatchArm *arm = &prog->arms[arm0 + i];
+            if (arm->is_wild) {
+                int v = lower_expr(b, prog, arm->body);
+                IrInst in;
+                int jm;
+                if (v < 0) return -1;
+                memset(&in, 0, sizeof(in));
+                in.op = IR_COPY;
+                in.dest = dst;
+                in.src1 = v;
+                in.line = arm->line;
+                in.col = arm->col;
+                if (irf_add(b, &in) != 0) return -1;
+                memset(&in, 0, sizeof(in));
+                in.op = IR_JMP;
+                in.line = arm->line;
+                in.col = arm->col;
+                jm = b->out->ninsts;
+                if (irf_add(b, &in) != 0) return -1;
+                b->label_fix[b->nfix][0] = jm;
+                b->label_fix[b->nfix][1] = l_end;
+                b->nfix++;
+                any_wild = 1;
+                break;
+            } else {
+                int tagv, cmp, l_next, v, j, word_off = 1;
+                int saved_names = b->nvnames;
+                IrInst in;
+                memset(&in, 0, sizeof(in));
+                in.op = IR_CONST;
+                in.dest = b->vreg++;
+                in.val = arm->variant; /* tag */
+                in.line = arm->line;
+                in.col = arm->col;
+                if (irf_add(b, &in) != 0) return -1;
+                tagv = in.dest;
+                memset(&in, 0, sizeof(in));
+                in.op = IR_EQ;
+                in.dest = b->vreg++;
+                in.src1 = tagv;
+                in.src2 = scrut; /* word 0 of the scrutinee = tag */
+                in.line = arm->line;
+                in.col = arm->col;
+                if (irf_add(b, &in) != 0) return -1;
+                cmp = in.dest;
+                memset(&in, 0, sizeof(in));
+                in.op = IR_JMPZ;
+                in.src1 = cmp;
+                in.line = arm->line;
+                in.col = arm->col;
+                {
+                    int jz = b->out->ninsts;
+                    l_next = new_label(b);
+                    if (l_next < 0) return -1;
+                    if (irf_add(b, &in) != 0) return -1;
+                    b->label_fix[b->nfix][0] = jz;
+                    b->label_fix[b->nfix][1] = l_next;
+                    b->nfix++;
+                }
+                /* payload bindings: fresh vregs, arm-local names */
+                for (j = 0; j < arm->nbinds; j++) {
+                    int bw = ty_words(prog, arm->bind_ty[j]);
+                    int bbase = b->vreg;
+                    int k;
+                    b->vreg += bw;
+                    if (b->nvnames >= KAVIR_MAX_VARS) {
+                        kavir_error(b->file, arm->line, arm->col,
+                                    "too many variables (limit %d per "
+                                    "function)", KAVIR_MAX_VARS);
+                        return -1;
+                    }
+                    strncpy(b->vnames[b->nvnames], arm->bind_names[j],
+                            KAVIR_MAX_NAME - 1);
+                    b->vnames[b->nvnames][KAVIR_MAX_NAME - 1] = '\0';
+                    b->vnums[b->nvnames] = bbase;
+                    b->nvnames++;
+                    for (k = 0; k < bw; k++) {
+                        memset(&in, 0, sizeof(in));
+                        in.op = IR_COPY;
+                        in.dest = bbase + k;
+                        in.src1 = scrut + word_off + k;
+                        in.line = arm->line;
+                        in.col = arm->col;
+                        if (irf_add(b, &in) != 0) return -1;
+                    }
+                    word_off += bw;
+                }
+                v = lower_expr(b, prog, arm->body);
+                if (v < 0) return -1;
+                memset(&in, 0, sizeof(in));
+                in.op = IR_COPY;
+                in.dest = dst;
+                in.src1 = v;
+                in.line = arm->line;
+                in.col = arm->col;
+                if (irf_add(b, &in) != 0) return -1;
+                memset(&in, 0, sizeof(in));
+                in.op = IR_JMP;
+                in.line = arm->line;
+                in.col = arm->col;
+                {
+                    int jm = b->out->ninsts;
+                    if (irf_add(b, &in) != 0) return -1;
+                    b->label_fix[b->nfix][0] = jm;
+                    b->label_fix[b->nfix][1] = l_end;
+                    b->nfix++;
+                }
+                b->nvnames = saved_names; /* bindings vanish */
+                place_label(b, l_next);
+            }
+        }
+        if (!any_wild) {
+            /* exhaustiveness guarantees this is unreachable; keep the
+             * result defined for the dataflow (interpreter zeroes new
+             * frames, so CONST 0 mirrors the machine exactly) */
+            IrInst in;
+            memset(&in, 0, sizeof(in));
+            in.op = IR_CONST;
+            in.dest = b->vreg++;
+            in.val = 0;
+            in.line = e->line;
+            in.col = e->col;
+            if (irf_add(b, &in) != 0) return -1;
+            memset(&in, 0, sizeof(in));
+            in.op = IR_COPY;
+            in.dest = dst;
+            in.src1 = b->vreg - 1;
+            in.line = e->line;
+            in.col = e->col;
+            if (irf_add(b, &in) != 0) return -1;
+        }
+        place_label(b, l_end);
         return dst;
     }
     case EX_BIN: {
@@ -243,7 +542,7 @@ static int lower_stmts(IrBuild *b, const Program *prog, const Block *blk) {
         case ST_LET: {
             int v = lower_expr(b, prog, st->expr_idx);
             IrInst in;
-            int lv;
+            int lv, nw, j;
             if (v < 0) return -1;
             if (b->nvnames >= KAVIR_MAX_VARS) {
                 kavir_error(b->file, st->line, st->col,
@@ -251,24 +550,28 @@ static int lower_stmts(IrBuild *b, const Program *prog, const Block *blk) {
                             KAVIR_MAX_VARS);
                 return -1;
             }
-            lv = b->vreg++; /* params occupy 0..nparams-1, lets follow */
+            nw = ty_words(prog, st->ty); /* checker-annotated type */
+            lv = b->vreg; /* lets claim nwords consecutive vregs */
+            b->vreg += nw;
             strncpy(b->vnames[b->nvnames], st->name, KAVIR_MAX_NAME - 1);
             b->vnames[b->nvnames][KAVIR_MAX_NAME - 1] = '\0';
             b->vnums[b->nvnames] = lv;
             b->nvnames++;
-            memset(&in, 0, sizeof(in));
-            in.op = IR_COPY;
-            in.dest = lv;
-            in.src1 = v;
-            in.line = st->line;
-            in.col = st->col;
-            if (irf_add(b, &in) != 0) return -1;
+            for (j = 0; j < nw; j++) {
+                memset(&in, 0, sizeof(in));
+                in.op = IR_COPY;
+                in.dest = lv + j;
+                in.src1 = v + j;
+                in.line = st->line;
+                in.col = st->col;
+                if (irf_add(b, &in) != 0) return -1;
+            }
             break;
         }
         case ST_ASSIGN: {
             int v = lower_expr(b, prog, st->expr_idx);
             IrInst in;
-            int tv;
+            int tv, nw, j;
             if (v < 0) return -1;
             tv = find_vreg(b, st->name);
             if (tv < 0) {
@@ -277,13 +580,17 @@ static int lower_stmts(IrBuild *b, const Program *prog, const Block *blk) {
                             st->name);
                 return -1;
             }
-            memset(&in, 0, sizeof(in));
-            in.op = IR_COPY;
-            in.dest = tv;
-            in.src1 = v;
-            in.line = st->line;
-            in.col = st->col;
-            if (irf_add(b, &in) != 0) return -1;
+            nw = ty_words(prog, st->ty);
+            tv += st->word_off; /* field path offset (0 for plain var) */
+            for (j = 0; j < nw; j++) {
+                memset(&in, 0, sizeof(in));
+                in.op = IR_COPY;
+                in.dest = tv + j;
+                in.src1 = v + j;
+                in.line = st->line;
+                in.col = st->col;
+                if (irf_add(b, &in) != 0) return -1;
+            }
             break;
         }
         case ST_WHILE: {
@@ -379,13 +686,21 @@ static int ir_build_fn(const char *file, const Fn *fn, const Program *prog,
         }
         out->name[i] = '\0';
     }
-    out->ret_is_i32 = fn->ret_is_i32;
+    out->ret_is_i32 = (fn->ret_ty == KAVIR_TY_I32);
+    out->ret_words = ty_words(prog, fn->ret_ty);
     out->nparams = fn->nparams;
     out->line = fn->line;
     out->col = fn->col;
-    for (k = 0; k < fn->nparams; k++) {
-        strncpy(out->param_names[k], fn->param_names[k], KAVIR_MAX_NAME - 1);
-        out->param_names[k][KAVIR_MAX_NAME - 1] = '\0';
+    {
+        int base = 0;
+        for (k = 0; k < fn->nparams; k++) {
+            int w = ty_words(prog, fn->param_ty[k]);
+            out->param_words[k] = w;
+            strncpy(out->param_names[k], fn->param_names[k],
+                    KAVIR_MAX_NAME - 1);
+            out->param_names[k][KAVIR_MAX_NAME - 1] = '\0';
+            base += w;
+        }
     }
 
     memset(&b, 0, sizeof(b));
@@ -394,14 +709,17 @@ static int ir_build_fn(const char *file, const Fn *fn, const Program *prog,
     b.nfix = 0;
     b.file = file;
     b.prog = prog;
+    /* params claim their words first, in order — the interpreter and
+     * the backend lay the incoming ABI values into the same bases */
     for (k = 0; k < fn->nparams; k++) {
+        int w = out->param_words[k];
         strncpy(b.vnames[b.nvnames], fn->param_names[k],
                 KAVIR_MAX_NAME - 1);
         b.vnames[b.nvnames][KAVIR_MAX_NAME - 1] = '\0';
-        b.vnums[b.nvnames] = k; /* param k IS vreg k */
+        b.vnums[b.nvnames] = b.vreg;
         b.nvnames++;
+        b.vreg += w;
     }
-    b.vreg = fn->nparams; /* params are vregs 0..nparams-1 */
 
     rc = lower_stmts(&b, prog, &prog->blocks[fn->body_block]);
     if (rc == 0) {

@@ -238,6 +238,83 @@ def gen_program(rng):
     return "\n".join(lines) + "\n"
 
 
+# ------------------------------------------------ M4 aggregate layer
+# ADR-011 layer for the differential fuzz: deterministic, trap-free
+# programs over structs/enums/Option. Aggregate VALUES are word-
+# compositional (weights), so the oracle needs no aggregate knowledge
+# beyond the shared semantics (reference.py implements the same M4
+# surface independently).
+
+M4_TYPES = [
+    "struct Pt { x: i32, y: i32 }",
+    "struct Tri { a: i32, b: i32, c: i32 }",
+    "struct P5 { a: i32, b: i32, c: i32, d: i32, e: i32 }",
+    "enum Sh { Dot, Balloon(i32), Box(i32, i32) }",
+]
+
+
+def m4_leaf(rng, scope):
+    if scope and rng.random() < 0.5:
+        return rng.choice(scope)
+    return str(rng.choice([0, 1, 2, 3, 5, 7, 11]))
+
+
+def m4_expr(rng, depth, scope):
+    if depth <= 0 or rng.random() < 0.4:
+        return m4_leaf(rng, scope)
+    op = rng.choice([" + ", " - ", " * "])
+    a = m4_expr(rng, depth - 1, scope)
+    b = m4_expr(rng, depth - 1, scope)
+    return "(%s%s%s)" % (a, op, b)
+
+
+def gen_m4_program(rng):
+    _name_ctr[0] = 0
+    lines = list(M4_TYPES)
+    # a helper fn taking one aggregate argument of a random shape
+    shape = rng.choice(["Pt", "Tri", "P5"])
+    words = {"Pt": 2, "Tri": 3, "P5": 5}[shape]
+    lit = ", ".join("%s: %s" % (f, m4_expr(rng, 1, []))
+                    for f in "abcde"[:words])
+    lines.append("fn wsum(v: %s) -> i32 {" % shape)
+    acc = []
+    for j, f in enumerate("abcde"[:words]):
+        acc.append("%d * v.%s" % (1 << (2 * j), f))
+    lines.append("    return %s;" % " + ".join(acc))
+    lines.append("}")
+    lines.append("fn mk() -> %s {" % shape)
+    lines.append("    return %s { %s };" % (shape, lit))
+    lines.append("}")
+    lines.append("fn main() -> i32 {")
+    lines.append("    print(wsum(mk()));")
+    lines.append("    let v: %s = mk();" % shape)
+    lines.append("    print(wsum(v));")
+    if rng.random() < 0.6:
+        lines.append("    let mut w: %s = v;" % shape)
+        f = rng.choice("abcde"[:words])
+        lines.append("    w.%s = %s;" % (f, m4_expr(rng, 1, [])))
+        lines.append("    print(wsum(w));")
+        lines.append("    print(v.%s);" % f)  # copy semantics: unchanged
+    # enum + match + Option layer
+    if rng.random() < 0.7:
+        lines.append("    let s: Sh = %s;" % rng.choice(
+            ["Sh.Dot", "Sh.Balloon(4)", "Sh.Box(2, 3)"]))
+        lines.append("    print(match s {")
+        lines.append("        Sh.Dot => 1,")
+        lines.append("        Sh.Balloon(r) => r * r,")
+        lines.append("        Sh.Box(w2, h2) => w2 * h2,")
+        lines.append("    });")
+        lines.append("    let o: Option[i32] = %s;" % rng.choice(
+            ["Option.None", "Option.Some(41)", "Option.Some(0 - 5)"]))
+        lines.append("    print(match o {")
+        lines.append("        Option.None => 0 - 99,")
+        lines.append("        Option.Some(v2) => v2 + 1,")
+        lines.append("    });")
+    lines.append("    return 0;")
+    lines.append("}")
+    return "\n".join(lines) + "\n"
+
+
 def gen_mutation(rng, seeds):
     data = bytearray(rng.choice(seeds))
     for _ in range(rng.randint(1, 12)):
@@ -281,7 +358,10 @@ def mode_diff(rng, n_iters, budget_s):
     for i in range(n_iters):
         if time.time() - t0 > budget_s:
             break
-        src = gen_program(rng)
+        # M4 layer: 35% of diff-mode programs exercise the aggregate
+        # surface (structs/enums/Option/match, ADR-011)
+        src = gen_m4_program(rng) if rng.random() < 0.35 \
+            else gen_program(rng)
         fd, path = tempfile.mkstemp(suffix=".k", prefix="kavir_fz_")
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(src)

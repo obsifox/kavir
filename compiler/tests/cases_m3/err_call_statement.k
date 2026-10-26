@@ -1,4 +1,4 @@
-// expect-error: call statements do not exist
+// expect-error: call statements and bare struct literals do not exist
 fn f(x: i32) -> i32 {
     return x;
 }

@@ -43,6 +43,14 @@ if [ -f tests/run_m31.py ]; then
     printf '%8d  Tooling PY LOC (tests/run_m31.py — M3.1 ELF checks)\n' \
         "$(wc -l < tests/run_m31.py)"
 fi
+printf '%8d  Tooling PY LOC (tests/run_m4.py — M4 runner)\n' \
+    "$(wc -l < tests/run_m4.py)"
+if [ -f tests/run_m4_elf.py ]; then
+    printf '%8d  Tooling PY LOC (tests/run_m4_elf.py — M4 ELF checks)\n' \
+        "$(wc -l < tests/run_m4_elf.py)"
+fi
+printf '%8d  Tooling PY LOC (scripts/gen_m4_fixtures.py — M4 fixtures)\n' \
+    "$(wc -l < scripts/gen_m4_fixtures.py)"
 printf '%8d  Tooling PY LOC (scripts/gen_m3_fixtures.py — M3 fixtures)\n' \
     "$(wc -l < scripts/gen_m3_fixtures.py)"
 if [ -f scripts/gen_m31_fixtures.py ]; then
@@ -59,3 +67,5 @@ printf '     %4d fixtures  (tests/cases_m2/*.k, M2 three-way corpus)\n' \
     "$(ls tests/cases_m2/*.k | wc -l)"
 printf '     %4d fixtures  (tests/cases_m3/*.k, M3 three-way corpus)\n' \
     "$(ls tests/cases_m3/*.k | wc -l)"
+printf '     %4d fixtures  (tests/cases_m4/*.k, M4 three-way corpus)\n' \
+    "$(ls tests/cases_m4/*.k | wc -l)"

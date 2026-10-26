@@ -1,9 +1,9 @@
-/* lexer.c — Kavir lexer (M3 subset; the surface is TEMPORARY, ADR-008 §0).
+/* lexer.c — Kavir lexer (M4 subset; the surface is TEMPORARY, ADR-008 §0).
  *
- * Tokens: keywords fn/return/i32/if/else/print/let/mut/while,
- * identifiers, integer literals, string literals (escapes \n \t \r \\ \"
- * , UTF-8 bytes pass through), punctuation ( ) { } ; -> : , = and
- * operators + - * / % < <= > >= == !=.
+ * Tokens: keywords fn/return/i32/if/else/print/let/mut/while/struct/
+ * enum/match/Option, identifiers, integer literals, string literals
+ * (escapes \n \t \r \\ \" , UTF-8 bytes pass through), punctuation
+ * ( ) { } [ ] ; -> => : , = . and operators + - * / % < <= > >= == !=.
  * // line comments.
  * Every token carries a file:line:col position (C-313 diagnostics rule).
  */
@@ -237,6 +237,16 @@ int lex(const char *file, const char *src, Token *toks, int max) {
                 set_token(&toks[n], T_MUT, file, tok_line, tok_col, buf, 0);
             else if (strcmp(buf, "while") == 0)
                 set_token(&toks[n], T_WHILE, file, tok_line, tok_col, buf, 0);
+            else if (strcmp(buf, "struct") == 0)
+                set_token(&toks[n], T_STRUCT, file, tok_line, tok_col, buf, 0);
+            else if (strcmp(buf, "enum") == 0)
+                set_token(&toks[n], T_ENUM, file, tok_line, tok_col, buf, 0);
+            else if (strcmp(buf, "match") == 0)
+                set_token(&toks[n], T_MATCH, file, tok_line, tok_col, buf, 0);
+            else if (strcmp(buf, "Option") == 0)
+                set_token(&toks[n], T_OPTION, file, tok_line, tok_col, buf, 0);
+            else if (strcmp(buf, "_") == 0)
+                set_token(&toks[n], T_UNDERSCORE, file, tok_line, tok_col, buf, 0);
             else
                 set_token(&toks[n], T_IDENT, file, tok_line, tok_col, buf, 0);
             n++;
@@ -284,6 +294,11 @@ int lex(const char *file, const char *src, Token *toks, int max) {
             set_token(&toks[n], T_GE, file, tok_line, tok_col, ">=", 0);
             n++; continue;
         }
+        if (c == '=' && lx.src[lx.pos + 1] == '>') {
+            adv(&lx); adv(&lx);
+            set_token(&toks[n], T_FATARROW, file, tok_line, tok_col, "=>", 0);
+            n++; continue;
+        }
         if (c == '=' && lx.src[lx.pos + 1] == '=') {
             adv(&lx); adv(&lx);
             set_token(&toks[n], T_EQEQ, file, tok_line, tok_col, "==", 0);
@@ -309,6 +324,9 @@ int lex(const char *file, const char *src, Token *toks, int max) {
         case ';': set_token(&toks[n], T_SEMI, file, tok_line, tok_col, ";", 0); adv(&lx); n++; continue;
         case ':': set_token(&toks[n], T_COLON, file, tok_line, tok_col, ":", 0); adv(&lx); n++; continue;
         case ',': set_token(&toks[n], T_COMMA, file, tok_line, tok_col, ",", 0); adv(&lx); n++; continue;
+        case '.': set_token(&toks[n], T_DOT, file, tok_line, tok_col, ".", 0); adv(&lx); n++; continue;
+        case '[': set_token(&toks[n], T_LBRACKET, file, tok_line, tok_col, "[", 0); adv(&lx); n++; continue;
+        case ']': set_token(&toks[n], T_RBRACKET, file, tok_line, tok_col, "]", 0); adv(&lx); n++; continue;
         case '=': set_token(&toks[n], T_EQ, file, tok_line, tok_col, "=", 0); adv(&lx); n++; continue;
         case '<': set_token(&toks[n], T_LT, file, tok_line, tok_col, "<", 0); adv(&lx); n++; continue;
         case '>': set_token(&toks[n], T_GT, file, tok_line, tok_col, ">", 0); adv(&lx); n++; continue;

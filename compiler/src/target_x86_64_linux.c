@@ -325,6 +325,79 @@ static void emit_mov_m_r9d(Emit *e, int disp) {
     put32(e, (unsigned long)((unsigned)disp & 0xffffffffUL));
 }
 
+/* ---- M4 aggregate-ABI emitters (ADR-011) ---- */
+
+static void emit_mov_rr64(Emit *e, int dst, int src) {
+    /* mov r64, r64 — 89 /r with REX.W (modrm.reg field = source) */
+    unsigned rex = 0x48;
+    if (src >= 8) rex |= 0x4;
+    if (dst >= 8) rex |= 0x1;
+    put8(e, rex); put8(e, 0x89);
+    put8(e, (unsigned)(0xC0 | ((src & 7) << 3) | (dst & 7)));
+}
+
+static void emit_shl_rax_imm8(Emit *e, int imm) {
+    put8(e, 0x48); put8(e, 0xC1); put8(e, 0xE0); put8(e, (unsigned)imm);
+}
+
+static void emit_shr_rax_imm8(Emit *e, int imm) {
+    put8(e, 0x48); put8(e, 0xC1); put8(e, 0xE8); put8(e, (unsigned)imm);
+}
+
+static void emit_or_rax_rdx(Emit *e) {
+    put8(e, 0x48); put8(e, 0x09); put8(e, 0xD0);
+}
+
+static void emit_lea_r_rbp(Emit *e, int reg, int disp) {
+    /* lea r64, [rbp + disp32] — REX.W 8D /r, mod=10 rm=101 (rbp) */
+    unsigned rex = 0x48;
+    if (reg >= 8) rex |= 0x1;
+    put8(e, rex); put8(e, 0x8D);
+    put8(e, (unsigned)(0x85 | ((reg & 7) << 3)));
+    put32(e, (unsigned long)((unsigned)disp & 0xffffffffUL));
+}
+
+static void emit_mov_rspoff_eax(Emit *e, int off) {
+    /* mov dword [rsp + off32], eax — 89 84 24 disp32 */
+    put8(e, 0x89); put8(e, 0x84); put8(e, 0x24);
+    put32(e, (unsigned long)((unsigned)off & 0xffffffffUL));
+}
+
+static void emit_mov_mrdi_eax(Emit *e, int off) {
+    /* mov dword [rdi + off32], eax — 89 87 disp32 (hidden-ptr writes) */
+    put8(e, 0x89); put8(e, 0x87);
+    put32(e, (unsigned long)((unsigned)off & 0xffffffffUL));
+}
+
+static void emit_mov_m_rdi64(Emit *e, int disp) {
+    /* mov qword [rbp+disp32], rdi — 48 89 BD disp32 (prologue spill) */
+    put8(e, 0x48); put8(e, 0x89); put8(e, 0xBD);
+    put32(e, (unsigned long)((unsigned)disp & 0xffffffffUL));
+}
+
+static void emit_mov_rdi_m64(Emit *e, int disp) {
+    /* mov rdi, qword [rbp+disp32] — 48 8B BD disp32 (restore at ret) */
+    put8(e, 0x48); put8(e, 0x8B); put8(e, 0xBD);
+    put32(e, (unsigned long)((unsigned)disp & 0xffffffffUL));
+}
+
+/* SysV integer-argument registers, indexed 0..5 (RDI RSI RDX RCX R8 R9);
+ * the 64-bit forms for the REX encodings (R8/R9 are 8/9). */
+static const int ABI_REG64[6] = { 7, 6, 2, 1, 8, 9 };
+
+/* r10d is the one scratch register no argument ever occupies (R10 and
+ * R11 are reserved: R11D carries the hidden depth value). */
+static void emit_mov_r10d_m(Emit *e, int disp) {
+    /* mov r10d, dword [rbp+disp32] — 44 8B 95 disp32 */
+    put8(e, 0x44); put8(e, 0x8B); put8(e, 0x95);
+    put32(e, (unsigned long)((unsigned)disp & 0xffffffffUL));
+}
+
+static void emit_or_rax_r10(Emit *e) {
+    /* or rax, r10 — 4C 09 D0 */
+    put8(e, 0x4C); put8(e, 0x09); put8(e, 0xD0);
+}
+
 static void emit_sub_rsp_imm(Emit *e, int imm) {
     if (imm >= -128 && imm <= 127) {
         put8(e, 0x48); put8(e, 0x83); put8(e, 0xEC); put8(e, (unsigned)imm);
@@ -379,14 +452,6 @@ static void emit_setcc_al(Emit *e, int cc) {
 static void emit_movzx_eax_al(Emit *e) { put8(e, 0x0F); put8(e, 0xB6); put8(e, 0xC0); }
 
 /* store a stack argument: mov [rsp+off], eax (off is 0 or 8 in practice) */
-static void emit_mov_rsp_eax(Emit *e, int off) {
-    if (off == 0) {
-        put8(e, 0x89); put8(e, 0x04); put8(e, 0x24);
-    } else {
-        put8(e, 0x89); put8(e, 0x44); put8(e, 0x24);
-        put8(e, (unsigned)off);
-    }
-}
 
 /* 64-bit helpers for the emitted runtime (digit conversion) */
 static void emit_movsxd_rax_edi(Emit *e) { put8(e, 0x48); put8(e, 0x63); put8(e, 0xC7); }
@@ -573,19 +638,36 @@ static int cmp_setcc_byte(IrOpKind op) {
 
 static int gen_function(Emit *e, const char *file, const IrModule *mod,
                         int fn_idx, const IrFn *fn) {
-    int k, nregs = 0, slots, depth_disp, rc_depth;
+    int k, nregs = 0, maxret = 0, slots, depth_disp;
+    int hidden = (fn->ret_words > 2);   /* ADR-011: >8B returns by ptr  */
+    int hidden_save_disp, scratch_base_disp;
+    int rc_depth, pbase, cursor, u;
 
-    /* pass 1: vreg count (dest is written by CONST/arith/cmp/COPY/CALL) */
+    /* pass 1: vreg word count (dest is written by CONST/arith/cmp/
+     * COPY/CALL; a CALL writes ret_words consecutive words) and the
+     * largest memory-class return this function receives */
     for (k = 0; k < fn->ninsts; k++) {
         const IrInst *in = &fn->insts[k];
         int writes = (in->op == IR_CONST) ||
                      (in->op >= IR_ADD && in->op <= IR_REM) ||
                      (in->op >= IR_LT && in->op <= IR_NE) ||
                      (in->op == IR_COPY) || (in->op == IR_CALL);
-        if (writes && in->dest + 1 > nregs) nregs = in->dest + 1;
+        int nw = (in->op == IR_CALL) ? in->ret_words : 1;
+        if (writes && in->dest + nw > nregs) nregs = in->dest + nw;
+        if (in->op == IR_CALL && in->ret_words > maxret)
+            maxret = in->ret_words;
     }
-    /* +1 slot for the hidden depth value (ADR-010 section 3b) */
-    slots = ((8 * (nregs + 1)) + 15) & ~15;
+
+    /* frame layout (ADR-011), all offsets negative from rbp:
+     *   vreg w        at -8*(w+1)          (w < nregs; low half used)
+     *   depth value   at -8*(nregs+1)
+     *   hidden ptr    at -8*(nregs+2)      (only for >8B-return fns)
+     *   ret scratch   4*maxret bytes BELOW the depth slot: word j at
+     *                 scratch_base + 4*j, scratch_base being the most
+     *                 negative address; callers pass its address in RDI */
+    hidden_save_disp = -8 * (nregs + 2);
+    scratch_base_disp = -(8 * (nregs + 1) + (hidden ? 8 : 0) + 4 * maxret);
+    slots = ((8 * (nregs + 1) + (hidden ? 8 : 0) + 4 * maxret) + 15) & ~15;
     depth_disp = -8 * (nregs + 1);
 
     /* prologue: depth check first, then frame + depth spill + args.
@@ -601,15 +683,49 @@ static int gen_function(Emit *e, const char *file, const IrModule *mod,
     emit_mov_rbp_rsp(e);
     emit_sub_rsp_imm(e, slots);
     emit_mov_m_r11d(e, depth_disp);
+    if (hidden) emit_mov_m_rdi64(e, hidden_save_disp);
 
-    /* parameter copies: register args, then stack args ([rbp+16+8i]) */
+    /* parameter stores: the same classification walk the call sites
+     * use (ADR-011). cursor = next integer-arg register slot; u = next
+     * 8-byte stack unit. A 1- or 2-word value takes ONE register
+     * (2-word values packed low/high like a SysV INTEGER eightbyte);
+     * anything wider lives on the stack, words packed into 8-byte
+     * units, leftmost argument at the lowest address. */
+    pbase = 0;
+    cursor = hidden ? 1 : 0;
+    u = 0;
     for (k = 0; k < fn->nparams; k++) {
-        if (k < 6) {
-            emit_store_arg_reg(e, k, k);
+        int w = fn->param_words[k];
+        if (w <= 2) {
+            if (cursor < 6) {
+                emit_store_arg_reg(e, cursor, pbase);
+                if (w == 2) {
+                    /* high word: (reg >> 32) & 0xffffffff */
+                    emit_mov_rr64(e, 0, ABI_REG64[cursor]); /* rax = reg */
+                    emit_shr_rax_imm8(e, 32);
+                    emit_mov_m_r(e, -8 * (pbase + 2), 0);
+                }
+                cursor++;
+            } else {
+                int off = 16 + 8 * u;
+                emit_mov_r_m(e, 0, off);                 /* low half  */
+                emit_mov_m_r(e, -8 * (pbase + 1), 0);
+                if (w == 2) {
+                    emit_mov_r_m(e, 0, off + 4);         /* high half */
+                    emit_mov_m_r(e, -8 * (pbase + 2), 0);
+                }
+                u++;
+            }
         } else {
-            emit_mov_r_m(e, 0, 16 + 8 * (k - 6)); /* eax = stack arg */
-            emit_mov_m_r(e, -8 * (k + 1), 0);
+            int j;
+            for (j = 0; j < w; j++) {
+                int unit = u + (j >> 1), half = j & 1;
+                emit_mov_r_m(e, 0, 16 + 8 * unit + 4 * half);
+                emit_mov_m_r(e, -8 * (pbase + j + 1), 0);
+            }
+            u += (w + 1) / 2;
         }
+        pbase += w;
     }
 
     for (k = 0; k < fn->ninsts; k++) {
@@ -681,18 +797,69 @@ static int gen_function(Emit *e, const char *file, const IrModule *mod,
             break;
 
         case IR_CALL: {
-            int i, nstack, stack_bytes;
-            nstack = in->nargs > 6 ? in->nargs - 6 : 0;
-            stack_bytes = nstack ? (((nstack + 1) & ~1) * 8) : 0;
-            if (nstack) emit_sub_rsp_imm(e, stack_bytes);
-            /* stack args: arg i (i>=6) lives at [rsp + 8*(i-6)]; that
-             * puts arg 7 at [rsp+0] = [rbp+16] in the callee (SysV) */
-            for (i = 6; i < in->nargs; i++) {
-                emit_mov_r_m(e, 0, -8 * (in->args[i] + 1));
-                emit_mov_rsp_eax(e, 8 * (i - 6));
+            int i, nstack_units = 0, stack_bytes;
+            int rcursor = (in->ret_words > 2) ? 1 : 0;
+            int ru = 0;
+            /* count outgoing stack units with the SAME walk used for
+             * placement (<=2 words: one register slot or one unit) */
+            for (i = 0; i < in->nargs; i++) {
+                int w = in->arg_words[i];
+                if (w <= 2) {
+                    if (rcursor < 6) rcursor++;
+                    else nstack_units++;
+                } else {
+                    nstack_units += (w + 1) / 2;
+                }
             }
-            for (i = 0; i < 6 && i < in->nargs; i++)
-                emit_load_arg_reg(e, i, in->args[i]);
+            stack_bytes = (nstack_units * 8 + 15) & ~15;
+            if (stack_bytes) emit_sub_rsp_imm(e, stack_bytes);
+            rcursor = (in->ret_words > 2) ? 1 : 0;
+            ru = 0;
+            /* hidden pointer first: RDI = address of this frame's ret
+             * scratch; the callee writes the result words there and
+             * they are copied to the dest slots after the call */
+            if (in->ret_words > 2)
+                emit_lea_r_rbp(e, 7, scratch_base_disp);
+            for (i = 0; i < in->nargs; i++) {
+                int w = in->arg_words[i];
+                int v = in->args[i];
+                if (w == 1) {
+                    if (rcursor < 6) {
+                        emit_load_arg_reg(e, rcursor, v);
+                        rcursor++;
+                    } else {
+                        emit_mov_r_m(e, 0, -8 * (v + 1));
+                        emit_mov_rspoff_eax(e, 8 * ru);
+                        ru++;
+                    }
+                } else if (w == 2) {
+                    if (rcursor < 6) {
+                        /* pack (w0 low, w1 high) into one register.
+                         * Scratch = R10 (never an argument register):
+                         * RDX holds argument 2 already, and the pack
+                         * must not clobber previously loaded args. */
+                        emit_mov_r10d_m(e, -8 * (v + 1));   /* r10d= w0 */
+                        emit_mov_r_m(e, 0, -8 * (v + 2));   /* eax = w1 */
+                        emit_shl_rax_imm8(e, 32);
+                        emit_or_rax_r10(e);
+                        emit_mov_rr64(e, ABI_REG64[rcursor], 0);
+                        rcursor++;
+                    } else {
+                        emit_mov_r_m(e, 0, -8 * (v + 1));
+                        emit_mov_rspoff_eax(e, 8 * ru);
+                        emit_mov_r_m(e, 0, -8 * (v + 2));
+                        emit_mov_rspoff_eax(e, 8 * ru + 4);
+                        ru++;
+                    }
+                } else {
+                    int j;
+                    for (j = 0; j < w; j++) {
+                        emit_mov_r_m(e, 0, -8 * (v + j + 1));
+                        emit_mov_rspoff_eax(e, 8 * ru + 8 * (j >> 1) + 4 * (j & 1));
+                    }
+                    ru += (w + 1) / 2;
+                }
+            }
             emit_mov_r11d_m(e, depth_disp);
             emit_inc_r11d(e);
             {
@@ -700,8 +867,20 @@ static int gen_function(Emit *e, const char *file, const IrModule *mod,
                 if (fl < 0) return -1;
                 emit_call(e, fl);
             }
-            if (nstack) emit_add_rsp_imm(e, stack_bytes);
-            emit_mov_m_r(e, -8 * (in->dest + 1), 0);
+            if (stack_bytes) emit_add_rsp_imm(e, stack_bytes);
+            if (in->ret_words == 1) {
+                emit_mov_m_r(e, -8 * (in->dest + 1), 0);
+            } else if (in->ret_words == 2) {
+                emit_mov_m_r(e, -8 * (in->dest + 1), 0); /* low word   */
+                emit_shr_rax_imm8(e, 32);                /* rax >>= 32 */
+                emit_mov_m_r(e, -8 * (in->dest + 2), 0); /* high word  */
+            } else {
+                /* the callee wrote the words into our scratch area */
+                for (i = 0; i < in->ret_words; i++) {
+                    emit_mov_r_m(e, 0, scratch_base_disp + 4 * i);
+                    emit_mov_m_r(e, -8 * (in->dest + i + 1), 0);
+                }
+            }
             break;
         }
 
@@ -736,18 +915,45 @@ static int gen_function(Emit *e, const char *file, const IrModule *mod,
             break;
         }
 
-        case IR_RET:
-            emit_mov_r_m(e, 0, -8 * (in->src1 + 1));
+        case IR_RET: {
+            int rw = fn->ret_words;
+            if (rw > 2) {
+                int j2;
+                emit_mov_rdi_m64(e, hidden_save_disp);
+                for (j2 = 0; j2 < rw; j2++) {
+                    emit_mov_r_m(e, 0, -8 * (in->src1 + j2 + 1));
+                    emit_mov_mrdi_eax(e, 4 * j2);
+                }
+                emit_mov_rr64(e, 0, 7); /* rax = rdi (SysV memory class) */
+            } else if (rw == 2) {
+                /* pack (w0 low, w1 high) into RAX, like a SysV
+                 * INTEGER eightbyte */
+                emit_mov_r_m(e, 0, -8 * (in->src1 + 2)); /* eax = w1    */
+                emit_shl_rax_imm8(e, 32);
+                emit_mov_r_m(e, 2, -8 * (in->src1 + 1)); /* edx = w0    */
+                emit_or_rax_rdx(e);
+            } else {
+                emit_mov_r_m(e, 0, -8 * (in->src1 + 1));
+            }
             emit_leave(e);
             emit_ret(e);
-            /* keep generating: early returns are mid-function in M3;
+            /* keep generating: early returns are mid-function in M3+;
              * code after a RET is reachable via jumps. If the RET is
              * the last instruction, the epilogue below is dead bytes. */
             break;
         }
     }
-    /* falling off the end: return 0 (must match interpreter semantics) */
+    }
+    /* falling off the end: return zeroes for every result word (the
+     * interpreter zeroes fresh frames, so this matches it exactly) */
     emit_xor_eax_eax(e);
+    if (hidden) {
+        int j2;
+        emit_mov_rdi_m64(e, hidden_save_disp);
+        for (j2 = 0; j2 < fn->ret_words; j2++)
+            emit_mov_mrdi_eax(e, 4 * j2);
+        emit_mov_rr64(e, 0, 7);
+    }
     emit_leave(e);
     emit_ret(e);
     return 0;

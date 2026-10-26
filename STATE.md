@@ -209,5 +209,35 @@ Reported to the user per instruction ("report and wait; do not change
 the status"). The line below is intentionally left as-is until the user
 decides.
 
+## M4 STATUS (2026-10-27)
+
+M4 COMPLETE at the local commit (push still pending GH_TOKEN — token
+env-var-only, never written to any file). Scope per the user's four
+locked decisions (ADR-011, 2026-10-27): structs by value (C layout),
+enums with i32 tags, exhaustive match (flat patterns, i32 arms),
+Option[T] monomorphisation; values > 8 bytes ALWAYS through memory
+(a documented deviation from the psABI two-register class for
+9..16 bytes); values <= 8 bytes in ONE register like a SysV INTEGER
+eightbyte.
+
+Verification (author-approved only):
+- three-way: M4 36/36, M3 51/51, M2 39/39, M1 16/16; ELF structural
+  M4 6/6, M3.1 5/5 (every sub/add rsp imm = 16-multiple).
+- fuzz diff: 80,000 inputs (seed 20261027) -> 57,063 accepted checked
+  three-way, 22,937 clean rejects, 0 problems, 301.6 s.
+- fuzz ASan+UBSan: 20,000 x3 = 60,000 execs (seed 777007), 0
+  findings, 314.0 s.
+- libFuzzer NOT RUN (no clang; no passwordless sudo) — recorded
+  honestly; the verifier command is in reports/milestones/M4.md.
+- LOC: C 5430 (5035 .c + 395 kavir.h, +2061 vs M3.1); tooling PY
+  3257; fixtures 13+39+51+36.
+- m5cut re-check at M4 completion (user requirement): remaining
+  projected 3.2-9.4k C LOC vs threshold 10,860 (= 2 x 5430) — NOT
+  FIRED (margin 1.46k at the upper edge); pre-agreed shrink plan
+  recorded in M4.md (M5 borrow diagnostics reduce to move-only; M6
+  builtins-only monomorphisation; formatter deferred).
+
+Next: M5 Memory (arena, slices, move/XOR per the ADR-003 subset).
+
 GitHub: private repo obsifox/kavir (remote origin). Token handled via env var only,
 never stored in tracked files; not revoked or deleted (user instruction).

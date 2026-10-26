@@ -59,7 +59,8 @@ TRAP_EXIT = 101
 CALL_DEPTH_LIMIT = 1024
 
 KEYWORDS = {"fn", "return", "i32", "if", "else", "print",
-            "let", "mut", "while"}
+            "let", "mut", "while", "_",
+            "struct", "enum", "match", "Option"}  # M4
 
 
 class ReferenceError(Exception):
@@ -156,6 +157,10 @@ def tokenize(src, path):
             toks.append(Tok("ARROW", s="->", line=tl, col=tc))
             adv(2)
             continue
+        if two == "=>":
+            toks.append(Tok("FATARROW", s="=>", line=tl, col=tc))
+            adv(2)
+            continue
         if two in ("<=", ">=", "==", "!="):
             toks.append(Tok(two, s=two, line=tl, col=tc))
             adv(2)
@@ -165,7 +170,8 @@ def tokenize(src, path):
                                  % (path, tl, tc))
         single = {"+": "+", "-": "-", "*": "*", "/": "/", "%": "%",
                   "(": "(", ")": ")", "{": "{", "}": "}", ";": ";",
-                  ":": ":", ",": ",", "=": "=", "<": "<", ">": ">"}
+                  ":": ":", ",": ",", "=": "=", "<": "<", ">": ">",
+                  ".": ".", "[": "[", "]": "]", "_": "_"}  # M4
         if c in single:
             toks.append(Tok(single[c], s=c, line=tl, col=tc))
             adv()
@@ -190,6 +196,7 @@ class Parser:
         self.toks = toks
         self.pos = 0
         self.path = path
+        self.no_lit = False  # inside a match scrutinee
 
     def peek(self):
         return self.toks[self.pos]
@@ -250,9 +257,46 @@ class Parser:
         if t.kind == "INT":
             self.next()
             return ("int", t.val, t.line, t.col)
+        if t.kind == "Option":
+            # Option.None | Option.Some(expr) — M4
+            at = self.next()
+            self.expect(".", "'.'")
+            tag = self.expect("IDENT", "None or Some")
+            if tag.s == "None":
+                return ("opt", "None", [], at.line, at.col)
+            if tag.s == "Some":
+                self.expect("(", "'('")
+                args = [self.expr()]
+                self.expect(")", "')'")
+                return ("opt", "Some", args, at.line, at.col)
+            raise ReferenceError("%s:%d:%d: expected None or Some"
+                                 % (self.path, tag.line, tag.col))
+        if t.kind == "match":
+            # match expr { pattern => body, ... } — arms yield i32 (M4)
+            at = self.next()
+            saved = self.no_lit
+            self.no_lit = True
+            scrut = self.expr()
+            self.no_lit = saved
+            self.expect("{", "'{'")
+            arms = []
+            while self.peek().kind != "}":
+                arm = self.pattern()
+                self.expect("FATARROW", "'=>'")
+                body = self.expr()
+                arms.append(arm + (body,))
+                if self.peek().kind == ",":
+                    self.next()
+                    continue
+                break
+            self.expect("}", "'}'")
+            if not arms:
+                raise ReferenceError("%s:%d:%d: empty match"
+                                     % (self.path, at.line, at.col))
+            return ("match", scrut, arms, at.line, at.col)
         if t.kind == "IDENT":
             self.next()
-            if self.peek().kind == "(":
+            if self.peek().kind == "(" and not self.no_lit:
                 self.next()
                 args = []
                 if self.peek().kind != ")":
@@ -263,8 +307,24 @@ class Parser:
                             continue
                         break
                 self.expect(")", "')'")
-                return ("call", t.s, args, t.line, t.col)
-            return ("ident", t.s, t.line, t.col)
+                return self.postfix(("call", t.s, args, t.line, t.col))
+            if self.peek().kind == "{":
+                # struct literal Name { field: expr, ... }
+                if self.no_lit:
+                    return self.postfix(("ident", t.s, t.line, t.col))
+                self.next()
+                fields = []
+                while self.peek().kind != "}":
+                    fname = self.expect("IDENT", "field name").s
+                    self.expect(":", "':'")
+                    fields.append((fname, self.expr()))
+                    if self.peek().kind == ",":
+                        self.next()
+                        continue
+                    break
+                self.expect("}", "'}'")
+                return ("slit", t.s, fields, t.line, t.col)
+            return self.postfix(("ident", t.s, t.line, t.col))
         if t.kind == "(":
             self.next()
             e = self.expr()
@@ -272,6 +332,77 @@ class Parser:
             return e
         raise ReferenceError("%s:%d:%d: expected expression, found %r"
                              % (self.path, t.line, t.col, t.s))
+
+    def postfix(self, node):
+        # .field chains; a payload call after Type.Variant turns the
+        # path into a constructor (M4)
+        segs = 0
+        while self.peek().kind == ".":
+            self.next()
+            seg = self.expect("IDENT", "field or variant name")
+            if self.peek().kind == "(":
+                if segs != 0:
+                    raise ReferenceError(
+                        "%s:%d:%d: unexpected '(' after a field chain"
+                        % (self.path, seg.line, seg.col))
+                self.next()
+                args = []
+                if self.peek().kind != ")":
+                    while True:
+                        args.append(self.expr())
+                        if self.peek().kind == ",":
+                            self.next()
+                            continue
+                        break
+                self.expect(")", "')'")
+                return ("ctor", node[1], seg.s, args, seg.line, seg.col)
+            node = ("field", node, seg.s, seg.line, seg.col)
+            segs += 1
+        return node
+
+    def pattern(self):
+        t = self.peek()
+        if t.kind == "_":
+            self.next()
+            return ("wild", None, None, [])
+        if t.kind == "Option":
+            self.next()
+            self.expect(".", "'.'")
+            tag = self.expect("IDENT", "None or Some")
+            binds = []
+            if tag.s == "None":
+                return ("none", "Option", "None", binds)
+            if tag.s == "Some":
+                if self.peek().kind == "(":
+                    self.next()
+                    while self.peek().kind != ")":
+                        binds.append(self.expect("IDENT",
+                                                 "binding name").s)
+                        if self.peek().kind == ",":
+                            self.next()
+                            continue
+                        break
+                    self.expect(")", "')'")
+                return ("some", "Option", "Some", binds)
+            raise ReferenceError("%s:%d:%d: expected None or Some"
+                                 % (self.path, tag.line, tag.col))
+        if t.kind == "IDENT":
+            self.next()
+            self.expect(".", "'.'")
+            vname = self.expect("IDENT", "variant name").s
+            binds = []
+            if self.peek().kind == "(":
+                self.next()
+                while self.peek().kind != ")":
+                    binds.append(self.expect("IDENT", "binding name").s)
+                    if self.peek().kind == ",":
+                        self.next()
+                        continue
+                    break
+                self.expect(")", "')'")
+            return ("type", t.s, vname, binds)
+        raise ReferenceError("%s:%d:%d: expected a match pattern"
+                             % (self.path, t.line, t.col))
 
     def block(self):
         self.expect("{", "'{'")
@@ -283,6 +414,25 @@ class Parser:
             stmts.append(self.stmt())
         self.next()
         return stmts
+
+    def typeann(self):
+        # type := 'i32' | IDENT | 'Option' '[' type ']' — parsed and
+        # DISCARDED: the oracle evaluates source-level values, not words
+        t = self.peek()
+        if t.kind == "i32":
+            self.next()
+            return
+        if t.kind == "IDENT":
+            self.next()
+            return
+        if t.kind == "Option":
+            self.next()
+            self.expect("[", "'['")
+            self.typeann()
+            self.expect("]", "']'")
+            return
+        raise ReferenceError("%s:%d:%d: expected a type, found %r"
+                             % (self.path, t.line, t.col, t.s))
 
     def stmt(self):
         t = self.peek()
@@ -311,7 +461,7 @@ class Parser:
                 is_mut = True
             name = self.expect("IDENT", "variable name")
             self.expect(":", "':'")
-            self.expect("i32", "'i32'")
+            self.typeann()
             self.expect("=", "'='")
             e = self.expr()
             self.expect(";", "';'")
@@ -336,16 +486,65 @@ class Parser:
             return ("if", e, then, els)
         if t.kind == "IDENT":
             self.next()
+            segs = []
+            while self.peek().kind == ".":
+                self.next()
+                segs.append(self.expect("IDENT", "field name").s)
             self.expect("=", "'=' (assignment)")
             e = self.expr()
             self.expect(";", "';'")
-            return ("assign", t.s, e)
+            return ("assignpath", t.s, segs, e)
         raise ReferenceError("%s:%d:%d: unexpected %r in block"
                              % (self.path, t.line, t.col, t.s))
 
     def program(self):
         fns = []
+        structs = {}  # name -> [field names]
+        enums = {}    # name -> {variant: payload value count}
         while self.peek().kind != "EOF":
+            if self.peek().kind == "struct":
+                self.next()
+                name = self.expect("IDENT", "struct name")
+                self.expect("{", "'{'")
+                fields = []
+                while self.peek().kind != "}":
+                    fname = self.expect("IDENT", "field name").s
+                    self.expect(":", "':'")
+                    self.typeann()
+                    fields.append(fname)
+                    if self.peek().kind == ",":
+                        self.next()
+                        continue
+                    break
+                self.expect("}", "'}'")
+                structs[name.s] = fields
+                continue
+            if self.peek().kind == "enum":
+                self.next()
+                name = self.expect("IDENT", "enum name")
+                self.expect("{", "'{'")
+                variants = {}
+                while self.peek().kind != "}":
+                    vname = self.expect("IDENT", "variant name").s
+                    n = 0
+                    if self.peek().kind == "(":
+                        self.next()
+                        while self.peek().kind != ")":
+                            self.typeann()
+                            n += 1
+                            if self.peek().kind == ",":
+                                self.next()
+                                continue
+                            break
+                        self.expect(")", "')'")
+                    variants[vname] = n
+                    if self.peek().kind == ",":
+                        self.next()
+                        continue
+                    break
+                self.expect("}", "'}'")
+                enums[name.s] = variants
+                continue
             fntok = self.expect("fn", "'fn'")
             name = self.expect("IDENT", "function name")
             self.expect("(", "'('")
@@ -354,7 +553,7 @@ class Parser:
                 while True:
                     p = self.expect("IDENT", "parameter name")
                     self.expect(":", "':'")
-                    self.expect("i32", "'i32'")
+                    self.typeann()
                     params.append(p.s)
                     if self.peek().kind == ",":
                         self.next()
@@ -362,12 +561,12 @@ class Parser:
                     break
             self.expect(")", "')'")
             self.expect("ARROW", "'->'")
-            self.expect("i32", "'i32'")
+            self.typeann()
             body = self.block()
             # definition position = the 'fn' keyword (matches the
             # compiler's fn->line/col used in trap messages)
             fns.append((name.s, params, body, fntok.line, fntok.col))
-        return fns
+        return fns, structs, enums
 
 
 # ------------------------------------------------------------ evaluator
@@ -406,10 +605,25 @@ class Evaluator:
         self.out = bytearray()
         self.path = path
         self.fns = {}     # name -> (params, body, line, col)
+        self.structs = {} # name -> [field names]
+        self.enums = {}   # name -> {variant: payload value count}
         self.depth = 0
 
     def trap(self, kind, line, col):
         raise Trap(kind, line, col)
+
+    @staticmethod
+    def cp(v):
+        """Value-semantics copy: aggregates are copied wholesale at
+        every binding (let / assign / argument / match binding / field
+        read), so aliasing can never be observed (ADR-011)."""
+        if isinstance(v, list):
+            if v[0] == "S":
+                return ["S", v[1], [Evaluator.cp(x) for x in v[2]]]
+            if v[0] == "E":
+                return ["E", v[1], v[2], [Evaluator.cp(x) for x in v[3]]]
+            raise ReferenceError("internal: bad value shape %r" % (v[0],))
+        return v
 
     def eval(self, node, env):
         kind = node[0]
@@ -436,6 +650,94 @@ class Evaluator:
             return env[name]
         if kind == "call":
             return self.call(node[1], node[2], node[3], node[4], env)
+        if kind == "slit":
+            _, tname, fields, line, col = node
+            if tname not in self.structs:
+                raise ReferenceError("unknown struct %r" % tname)
+            order = self.structs[tname]
+            if [f for f, _ in fields] != order:
+                raise ReferenceError(
+                    "%s:%d:%d: struct literal fields must be in "
+                    "declaration order" % (self.path, line, col))
+            vals = [self.cp(self.eval(e, env)) for _, e in fields]
+            return ["S", tname, vals]
+        if kind == "ctor":
+            _, tname, vname, args, line, col = node
+            if tname not in self.enums or vname not in self.enums[tname]:
+                raise ReferenceError("unknown variant %s.%s"
+                                     % (tname, vname))
+            vals = [self.cp(self.eval(a, env)) for a in args]
+            if len(vals) != self.enums[tname][vname]:
+                raise ReferenceError("%s:%d:%d: variant %s.%s takes %d "
+                                     "value(s)" %
+                                     (self.path, line, col, tname, vname,
+                                      self.enums[tname][vname]))
+            return ["E", tname, vname, vals]
+        if kind == "opt":
+            _, tag, args, line, col = node
+            if tag == "None":
+                return ["E", "Option", "None", []]
+            if len(args) != 1:
+                raise ReferenceError("%s:%d:%d: Option.Some takes one "
+                                     "value" % (self.path, line, col))
+            return ["E", "Option", "Some",
+                    [self.cp(self.eval(args[0], env))]]
+        if kind == "field":
+            _, base, fname, line, col = node
+            # bare Type.Variant (no payload) is a constructor, exactly
+            # like the compiler's Type.Variant( path without arguments
+            if base[0] == "ident" and base[1] in self.enums:
+                tname = base[1]
+                if fname not in self.enums[tname]:
+                    raise ReferenceError("enum %s has no variant %r"
+                                         % (tname, fname))
+                if self.enums[tname][fname] != 0:
+                    raise ReferenceError(
+                        "%s:%d:%d: variant %s.%s carries a payload; call "
+                        "it as %s.%s(value)" % (self.path, line, col,
+                                                tname, fname, tname,
+                                                fname))
+                r = ["E", tname, fname, []]
+                return r
+            v = self.eval(base, env)
+            if not isinstance(v, list) or v[0] != "S":
+                raise ReferenceError("%s:%d:%d: field access on a "
+                                     "non-struct" % (self.path, line, col))
+            if fname not in self.structs[v[1]]:
+                raise ReferenceError("struct %s has no field %r"
+                                     % (v[1], fname))
+            idx = self.structs[v[1]].index(fname)
+            return self.cp(v[2][idx])
+        if kind == "match":
+            _, scrut, arms, line, col = node
+            v = self.eval(scrut, env)
+            if not isinstance(v, list) or v[0] != "E":
+                raise ReferenceError("%s:%d:%d: match on a non-enum "
+                                     "value" % (self.path, line, col))
+            for arm in arms:
+                akind, atname, avname, binds, body = arm
+                if akind == "wild":
+                    return self.eval(body, env)
+                if akind == "none":
+                    if v[2] == "None":
+                        return self.eval(body, env)
+                    continue
+                if akind == "some":
+                    if v[2] == "Some":
+                        env2 = dict(env)
+                        for name, val in zip(binds, v[3]):
+                            env2[name] = self.cp(val)
+                        return self.eval(body, env2)
+                    continue
+                # typed variant pattern
+                if atname == v[1] and avname == v[2]:
+                    env2 = dict(env)
+                    for name, val in zip(binds, v[3]):
+                        env2[name] = self.cp(val)
+                    return self.eval(body, env2)
+            raise ReferenceError("%s:%d:%d: no arm matched (the "
+                                 "compiler checks exhaustiveness)"
+                                 % (self.path, line, col))
         if kind == "bin":
             _, op, a, b, opline, opcol = node
             va = self.eval(a, env)   # evaluation order: lhs, rhs, op
@@ -477,7 +779,7 @@ class Evaluator:
                 % (name, len(params), len(argexprs)))
         # arguments evaluate left-to-right in the CALLER's environment,
         # before the call
-        vals = [self.eval(a, caller_env) for a in argexprs]
+        vals = [self.cp(self.eval(a, caller_env)) for a in argexprs]
         if self.depth + 1 >= CALL_DEPTH_LIMIT:
             # the callee would be frame CALL_DEPTH_LIMIT+1 (depth index
             # CALL_DEPTH_LIMIT): frame indices 0..CALL_DEPTH_LIMIT-1 are
@@ -518,12 +820,32 @@ class Evaluator:
                 # NOTE: the no-shadowing rule is checked ONCE per
                 # let SITE (static check in expected_for); a let
                 # inside a loop re-binds on every iteration.
-                env[st[1]] = v
-            elif k == "assign":
-                if st[1] not in env:
-                    raise ReferenceError("undeclared variable %r"
-                                         % st[1])
-                env[st[1]] = self.eval(st[2], env)
+                env[st[1]] = self.cp(v)
+            elif k == "assignpath":
+                root, segs, e = st[1], st[2], st[3]
+                if root not in env:
+                    raise ReferenceError("undeclared variable %r" % root)
+                if not segs:
+                    env[root] = self.cp(self.eval(e, env))
+                    continue
+                cur = env[root]
+                for seg in segs[:-1]:
+                    if not isinstance(cur, list) or cur[0] != "S":
+                        raise ReferenceError("field path through a "
+                                             "non-struct")
+                    if seg not in self.structs[cur[1]]:
+                        raise ReferenceError("struct %s has no field %r"
+                                             % (cur[1], seg))
+                    cur = cur[2][self.structs[cur[1]].index(seg)]
+                if not isinstance(cur, list) or cur[0] != "S":
+                    raise ReferenceError("field path through a "
+                                         "non-struct")
+                last = segs[-1]
+                if last not in self.structs[cur[1]]:
+                    raise ReferenceError("struct %s has no field %r"
+                                         % (cur[1], last))
+                idx = self.structs[cur[1]].index(last)
+                cur[2][idx] = self.cp(self.eval(e, env))
             elif k == "return":
                 raise ReturnSignal(self.eval(st[1], env))
             else:
@@ -591,11 +913,14 @@ def expected_for(path):
     with open(path, "rb") as f:
         src = f.read().decode("utf-8", "surrogateescape")
     toks = tokenize(src, path)
-    fns = Parser(toks, path).program()
+    fns, structs, enums = Parser(toks, path).program()
     _static_checks(fns, path)
     ev = Evaluator(path)
     for (name, params, body, line, col) in fns:
         ev.fns[name] = (params, body, line, col)
+    ev.structs = structs
+    ev.enums = enums
+    ev.enums["Option"] = {"None": 0, "Some": 1}  # builtin mono surface
     if "main" not in ev.fns:
         raise ReferenceError("%s: no main" % path)
 

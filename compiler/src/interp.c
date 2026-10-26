@@ -149,13 +149,17 @@ int interp_run(const IrModule *mod, InterpResult *out) {
         regs = g_iregs[sp];
 
         if (g_frames[sp].pc >= fn->ninsts) {
-            /* fell off the end: return 0 (documented semantics) */
+            /* fell off the end: return zeros for every result word
+             * (documented semantics; the ELF zeroes its return words
+             * the same way) */
             if (g_frames[sp].call_dest < 0) {
                 out->value = 0;
                 return 0;
             }
+            int j;
             caller_regs = g_iregs[sp - 1];
-            caller_regs[g_frames[sp].call_dest] = 0;
+            for (j = 0; j < fn->ret_words; j++)
+                caller_regs[g_frames[sp].call_dest + j] = 0;
             sp--;
             continue;
         }
@@ -205,7 +209,7 @@ int interp_run(const IrModule *mod, InterpResult *out) {
             break;
         case IR_CALL: {
             const IrFn *callee;
-            int k;
+            int k, j, pbase = 0;
             if (sp + 1 >= KAVIR_MAX_CALL_DEPTH) {
                 /* identical rule to the ELF: entering the callee would
                  * be frame 1024; the trap names the callee and its
@@ -227,18 +231,25 @@ int interp_run(const IrModule *mod, InterpResult *out) {
             g_frames[sp].call_dest = in->dest;
             regs = g_iregs[sp];
             for (k = 0; k < callee->nvregs; k++) regs[k] = 0;
-            for (k = 0; k < in->nargs; k++)
-                regs[k] = caller_regs[in->args[k]]; /* args pre-evaluated */
+            /* arguments land in the callee's param vregs word-wise,
+             * exactly what the backend's prologue stores (ADR-011) */
+            for (k = 0; k < in->nargs; k++) {
+                for (j = 0; j < in->arg_words[k]; j++)
+                    regs[pbase + j] = caller_regs[in->args[k] + j];
+                pbase += in->arg_words[k];
+            }
             break;
         }
         case IR_RET: {
-            long long rv = regs[in->src1];
+            int rw, j;
+            rw = mod->fns[g_frames[sp].fn_idx].ret_words;
             if (g_frames[sp].call_dest < 0) {
-                out->value = rv;
+                out->value = regs[in->src1]; /* word 0 (main: i32) */
                 return 0;
             }
             caller_regs = g_iregs[sp - 1];
-            caller_regs[g_frames[sp].call_dest] = rv;
+            for (j = 0; j < rw; j++)
+                caller_regs[g_frames[sp].call_dest + j] = regs[in->src1 + j];
             sp--; /* the caller's pc already points after its IR_CALL */
             break;
         }

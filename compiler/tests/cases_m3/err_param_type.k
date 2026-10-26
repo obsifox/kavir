@@ -1,4 +1,4 @@
-// expect-error: M3 parameter types are 'i32' only
+// expect-error: unknown type 'i64'
 fn f(a: i64) -> i32 {
     return 0;
 }
