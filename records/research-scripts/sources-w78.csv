@@ -1,0 +1,36 @@
+S-701,Why Cargo Exists — The Cargo Book,https://doc.rust-lang.org/cargo/guide/why-cargo-exists.html,primary,Rust project,unknown,current edition,2026-10-26,yes,rust-docs,Integrated build tool + package manager rationale
+S-702,Cargo.toml vs Cargo.lock — The Cargo Book,https://doc.rust-lang.org/cargo/guide/cargo-toml-vs-cargo-lock.html,primary,Rust project,unknown,current edition,2026-10-26,yes,rust-docs,Lockfile rationale; reproducible builds; coordinator spot-check passed
+S-703,Go Modules Reference,https://go.dev/ref/mod,primary,Google (go.dev),unknown,current,2026-10-26,yes,go-project,MVS; go.sum (same doc as S-314)
+S-704,Keeping Your Modules Compatible,https://go.dev/blog/module-compatibility,primary,Go team,2020-07-07,unknown,2026-10-26,yes,go-project,Import compatibility rule
+S-705,Minimal Version Selection (Go & Versioning Part 4),https://research.swtch.com/vgo-mvs,primary,Russ Cox (research!rsc),2018-02-21,unknown,2026-10-26,yes,rsc-blog,Designer rationale for MVS
+S-706,Module Mirror and Checksum Database Launched,https://go.dev/blog/module-mirror-launch,primary,Go team,2019-08-29,unknown,2026-10-26,yes,go-project,Supply-chain integrity default
+S-707,Go 1 and the Future of Go Programs,https://go.dev/doc/go1compat,primary,Google (go.dev),unknown,current,2026-10-26,yes,go-project,Go 1 compatibility promise (source level)
+S-708,Go at Google: Language Design in the Service of Software Engineering,https://go.dev/talks/2012/splash.article,primary,Rob Pike / Google,2012,SPLASH talk article,2026-10-26,yes,go-project,Adoption-origin narrative (same doc as S-311)
+S-709,go fmt your code,https://go.dev/blog/go-fmt-your-code,primary,Go blog (Andrew Gerrand),2013-01-23,unknown,2026-10-26,yes,go-project,Formatter-as-DX
+S-710,PEP 594 — Removing dead batteries from the standard library,https://peps.python.org/pep-0594/,primary,Python Software Foundation,unknown,accepted; removals in 3.13,2026-10-26,yes,python-peps,Stdlib scope rationale
+S-711,Repeatable Installs — pip documentation,https://pip.pypa.io/en/stable/topics/repeatable-installs/,primary,PyPA,unknown,v26.2.2,2026-10-26,yes,python-docs,Pinned requirements; hash verification; pip lock
+S-712,package-lock.json — npm Docs (CLI v10),https://docs.npmjs.com/cli/v10/configuring-npm/package-lock-json,primary,npm Inc.,unknown,npm CLI v10,2026-10-26,yes,npm-docs,Identical trees promise
+S-713,Language Server Protocol Specification — 3.17,https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/,primary,Microsoft,unknown,3.17,2026-10-26,yes,msoft-lsp,JSON-RPC base protocol
+S-714,Definitions — reproducible-builds.org,https://reproducible-builds.org/docs/definition/,primary,Reproducible Builds project,unknown,current,2026-10-26,yes,rb-org,Canonical definition of reproducible builds
+S-715,Announcing Rust 1.31 and Rust 2018,https://blog.rust-lang.org/2018/12/06/Rust-1.31-and-rust-2018/,primary,Rust Core Team,2018-12-06,unknown,2026-10-26,yes,rust-docs,Editions + tooling rollout
+S-716,The Rust Edition Guide — Introduction,https://doc.rust-lang.org/edition-guide/,primary,Rust project,unknown,current,2026-10-26,yes,rust-docs,Edition mechanism
+S-717,Announcing the release of Julia 1.0,https://julialang.org/blog/2018/08/one-point-zero/,primary,JuliaLang,2018-08-08,unknown,2026-10-26,yes,julia-project,API stability headline commitment
+S-718,Crystal 1.0 — What to expect,https://crystal-lang.org/2021/03/22/crystal-1.0-what-to-expect.html,primary,Crystal project,2021-03-22,unknown,2026-10-26,yes,crystal-project,Stability-promise rationale
+S-719,PyPI has completed its first security audit,https://blog.pypi.org/posts/2023-11-14-1-pypi-completes-first-security-audit/,primary,PyPI / PSF,2023-11-14,unknown,2026-10-26,yes,pypi-blog,Trail of Bits audit; 29 advisories
+S-720,Julia: A Fresh Approach to Numerical Computing,https://arxiv.org/abs/1411.1607,primary,Bezanson; Edelman; Karp; Shah,2014-11-06,arXiv v1; SIAM Review 2017,2026-10-26,yes,julia-paper,Two-language problem framing
+S-721,Raku® (official landing),https://raku.org/,primary,Raku community,unknown,current,2026-10-26,yes,raku-project,Corroborates framing only
+S-722,FAQ — Raku Documentation,https://docs.raku.org/language/faq,primary,Raku community,unknown,current,2026-10-26,yes,raku-project,Rename + release dates
+S-723,Dart for the Entire Web,https://news.dartlang.org/2015/03/dart-for-entire-web.html,primary,Dart team (Lars Bak; Kasper Lund),2015-03-25,unknown,2026-10-26,yes,dartlang,Official 2015 pivot announcement
+S-724,Dart language evolution (dart-2),https://dart.dev/dart-2,primary,Google Dart team,unknown,current; flagged deprecated,2026-10-26,yes,dartlang,Dart 1.x to 2 migration history
+S-725,FAQ — Flutter documentation,https://docs.flutter.dev/resources/faq,primary,Flutter team,unknown,current,2026-10-26,yes,flutter-docs,Why Dart was chosen
+S-726,The TypeScript Handbook — Introduction,https://www.typescriptlang.org/docs/handbook/intro.html,primary,Microsoft,unknown,current,2026-10-26,yes,typescript-docs,Not a complete language specification
+S-727,kik; left-pad; and npm (npm Blog Archive),https://blog.npmjs.org/post/141577284765/kik-left-pad-and-npm,primary,npm Inc.,2016-03-23,unknown,2026-10-26,yes,npm-blog,Official postmortem; coordinator spot-check passed
+S-728,Malicious code found in npm package event-stream,https://snyk.io/blog/malicious-code-found-in-npm-package-event-stream/,secondary,Snyk,2018-11-26,unknown,2026-10-26,yes,snyk,Postmortem of supply-chain incident
+S-729,SWOT analysis of renaming Perl 6 to Raku,https://raw.githubusercontent.com/perl6/problem-solving/6af3f5304213d98d4e0350e6431311176adba77d/solutions/language/SWOT-TO-RAKU.md,primary,perl6/problem-solving repo,2019-10,pinned commit 6af3f53,2026-10-26,yes,raku-project,Rename rationale in project's own words
+S-730,TPF response to Raku rename,https://news.perlfoundation.org/post/tpf-response-raku-rename,primary,The Perl Foundation,2019-10-29,unknown,2026-10-26,yes,perl-foundation,Governance statement
+S-731,HN thread 17705958 (Dart 2 Stable discussion),https://news.ycombinator.com/item?id=17705958,tertiary,Hacker News community,2018-08-07,unknown,2026-10-26,yes,hn,Counter-evidence; interest tied to Flutter
+S-732,HN thread 14431315 (Nim in production),https://news.ycombinator.com/item?id=14431315,tertiary,Hacker News community,2017-05-27,unknown,2026-10-26,yes,hn,Counter-evidence discovery only
+S-733,Language Server Protocol — Overview / Motivation,https://microsoft.github.io/language-server-protocol/overviews/lsp/overview/,primary,Microsoft,unknown,current,2026-10-26,yes,msoft-lsp,Same doc as S-308
+S-734,kik; left-pad; and npm — Isaac Z. Schlueter response,http://blog.izs.me/post/141578029413/kik-left-pad-and-npm,primary,npm founder,2016-03-23,unknown,2026-10-26,no,npm-founder,Dead link (404); lead only
+S-735,TypeScript Design Goals (wiki; direct fetch attempt),https://github.com/Microsoft/TypeScript/wiki/Design-Goals,primary,Microsoft/TypeScript,unknown,current,2026-10-26,no,ts-team,GitHub 403; same doc as fetched S-305
+S-736,HOPL conference papers,https://dl.acm.org/conference/hopl,primary,ACM,unknown,2007/2021 editions,2026-10-26,no,acm-hopl,Paywalled; lead only

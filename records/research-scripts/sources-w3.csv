@@ -1,0 +1,28 @@
+S-301,PEP 20 – The Zen of Python,https://peps.python.org/pep-0020/,primary,Python PEPs,2004-08-19,page mod 2025-02-01,2026-10-26,yes,python-peps,Design aphorisms
+S-302,PEP 484 – Type Hints,https://peps.python.org/pep-0484/,primary,Python PEPs,2014-09-29,Final (Python 3.5),2026-10-26,yes,python-peps,Basis of Python gradual typing
+S-303,PEP 563 – Postponed Evaluation of Annotations,https://peps.python.org/pep-0563/,primary,Python PEPs,2017-09-08,Superseded by 649/749,2026-10-26,yes,python-peps,Annotation-cost friction history
+S-304,PEP 657 – Fine-grained Error Locations in Tracebacks,https://peps.python.org/pep-0657/,primary,Python PEPs,2021-05-08,Final (Python 3.11),2026-10-26,yes,python-peps,Diagnostics investment
+S-305,TypeScript Design Goals (wiki),https://github.com/Microsoft/TypeScript/wiki/Design-Goals,primary,Microsoft/TS team,unknown,wiki git-dated 2026-10-06,2026-10-26,yes,ts-team,Soundness as explicit non-goal
+S-306,TypeScript Handbook: Type Compatibility (A Note on Soundness),https://www.typescriptlang.org/docs/handbook/type-compatibility.html,primary,Microsoft/TS team,unknown,TS 5.x docs,2026-10-26,yes,ts-team,Official unsoundness admission
+S-307,ECMAScript Language Specification (draft),https://tc39.es/ecma262/,primary,TC39 Ecma International,unknown,ES2027 draft; 16th ed ES2025,2026-10-26,yes,tc39,Normative; no static type layer
+S-308,Language Server Protocol Overview,https://microsoft.github.io/language-server-protocol/overviews/lsp/overview/,primary,Microsoft,unknown,2026 site,2026-10-26,yes,msoft-lsp,LSP motivation = M×N tooling problem (same doc as S-733)
+S-309,Launching Ignition and TurboFan,https://v8.dev/blog/launching-ignition-and-turbofan,primary,Google V8 team,2017-05-15,V8 v5.9,2026-10-26,yes,google-v8,Tiering pipeline rationale + memory numbers
+S-310,Go Frequently Asked Questions,https://go.dev/doc/faq,primary,Go team,unknown,reflects Go 1.18+,2026-10-26,yes,go-project,Omissions + generics history (same doc as S-419)
+S-311,Go at Google: Language Design in the Service of Software Engineering,https://go.dev/talks/2012/splash.article,primary,Rob Pike / Go team,2012,SPLASH 2012,2026-10-26,yes,go-project,Pain points: builds; dependencies (same doc as S-708)
+S-312,The Generic Dilemma,https://research.swtch.com/generic,primary,Russ Cox (research!rsc blog),2009-12-03,unknown,2026-10-26,yes,rsc-blog,Generics trade triangle
+S-313,Type Parameters Proposal (issue 43651 design doc),https://go.googlesource.com/proposal/+/refs/heads/master/design/43651-type-parameters.md,primary,Ian Lance Taylor; Robert Griesemer,2021-08-20,accepted; Go 1.18 (2022),2026-10-26,yes,go-project,Go generics design
+S-314,Go Modules Reference,https://go.dev/ref/mod,primary,Go team,unknown,current,2026-10-26,yes,go-project,MVS; go.sum checksums (same doc as S-703)
+S-315,Lua 5.4 Reference Manual,https://www.lua.org/manual/5.4/manual.html,primary,Lua.org PUC-Rio,unknown,Lua 5.4 (2020-2026),2026-10-26,yes,lua-team,Normative; small core + C API
+S-316,The Evolution of Lua (HOPL III),https://www.lua.org/doc/hopl.pdf,primary,Ierusalimschy; de Figueiredo; Celes; ACM,2007,HOPL III,2026-10-26,yes,lua-team,Designer retrospective on principles
+S-317,About Ruby,https://www.ruby-lang.org/en/about/,primary,Ruby Association,unknown,current,2026-10-26,yes,ruby-team,Matz: natural not simple
+S-318,Ruby 3.0.0 Released,https://www.ruby-lang.org/en/news/2020/12/25/ruby-3-0-0-released/,primary,ruby-lang.org,2020-12-25,Ruby 3.0,2026-10-26,yes,ruby-team,3x3 goal; MJIT; RBS/TypeProf
+S-319,PyPy homepage,https://www.pypy.org/,primary,The PyPy Team,unknown,built 2026-10-14,2026-10-26,yes,pypy-team,Vendor performance claim (4x)
+S-320,Our journey to type checking 4 million lines of Python,https://dropbox.tech/application/our-journey-to-type-checking-4-million-lines-of-python,primary,Jukka Lehtosalo / Dropbox.tech,2019-09-05,unknown,2026-10-26,yes,dropbox-eng,Scale pain + mypy migration
+S-321,Octoverse 2024,https://github.blog/news-insights/octoverse/octoverse-2024/,secondary,GitHub,2024-10,unknown,2026-10-26,yes,github-data,Python overtook JavaScript on GitHub
+S-322,2024 Stack Overflow Developer Survey – Methodology,https://survey.stackoverflow.co/2024/methodology,secondary,Stack Overflow,2024,fielded 2024-05-19 to 06-20,2026-10-26,yes,stackoverflow-survey,65437 responses; 185 countries
+S-323,LuaJIT homepage,https://luajit.org/luajit.html,primary,Mike Pall,unknown,(c) 2005-2026,2026-10-26,yes,luajit-author,JIT for Lua; embedded use
+S-324,About the public npm registry,https://docs.npmjs.com/about-the-public-npm-registry,primary,npm/GitHub,unknown,current,2026-10-26,yes,npm-docs,Registry docs
+S-325,Is Sound Gradual Typing Dead?,http://www.ccs.neu.edu/racket/pubs/popl16-tfgnvf.pdf,primary,Takikawa et al. (POPL),2016,POPL 2016,2026-10-26,yes,neu-plt,Performance-lattice method; unusable configurations
+S-326,Efficient Gradual Typing,https://arxiv.org/abs/1802.06375,primary,Greenman & Felleisen (arXiv),2018-02,v1 2018-02-17,2026-10-26,yes,arxiv-pltd,Cites Takikawa 100x result
+S-327,To Type or Not to Type? (JS vs TS on GitHub),https://arxiv.org/abs/2203.11115,primary,Bogner & Merkel; MSR'22 (arXiv),2022-03-21,arXiv:2203.11115,2026-10-26,yes,arxiv-pltd2,604 repos; 16M LoC study
+S-328,Strong arrows: a new approach to gradual typing,https://elixir-lang.org/blog/2023/09/20/strong-arrows-gradual-typing/,primary,José Valim / Elixir blog,2023-09-20,unknown,2026-10-26,yes,elixir-team,Gradual-typing difficulty testimony
