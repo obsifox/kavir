@@ -1,0 +1,182 @@
+# E1 backend probe — QBE IL version of probe.c (identical algorithm).
+# Integer-only, deterministic; one checksum line on stdout.
+# Pre-declared criteria in benchmarks/methodology.md.
+#
+# Notes: all loop counters are 64-bit (l); uint32 wrapping is achieved by
+# storing the low 32 bits (storew / loaduw). Loop-carried values use phi
+# at the loop head. calloc/free/printf/qsort are libc calls (E5 FFI leg),
+# including a QBE-defined callback ($cmp) passed to libc qsort.
+
+data $fmt = { b "%llu %llu %u %u\n", b 0 }
+
+# qsort callback: (u > v) - (u < v) on uint32 elements
+export function w $cmp(l %x, l %y) {
+@start
+        %u =w loaduw %x
+        %v =w loaduw %y
+        %gt =w cugtw %u, %v
+        %lt =w cultw %u, %v
+        %r =w sub %gt, %lt
+        ret %r
+}
+
+export function w $main() {
+@start
+        %sieve =l call $calloc(l 10000000, l 1)
+        %abase =l call $calloc(l 1048576, l 1)
+        %bbase =l call $calloc(l 1048576, l 1)
+        %cbase =l call $calloc(l 1048576, l 1)
+        %corner =l alloc8 64
+
+        # --- sieve strike phase ---
+        jmp @s.head
+@s.head
+        %i =l phi @start 2, @s.inc %inext
+        %c1 =w csgel %i, 10000000
+        jnz %c1, @s.end, @s.body
+@s.body
+        %pi =l add %sieve, %i
+        %isp =w loadub %pi
+        jnz %isp, @s.inc, @s.strike
+@s.strike
+        %j0 =l mul %i, %i
+        jmp @s.shead
+@s.shead
+        %j =l phi @s.strike %j0, @s.sbody %jnext
+        %c2 =w csgel %j, 10000000
+        jnz %c2, @s.inc, @s.sbody
+@s.sbody
+        %pj =l add %sieve, %j
+        storeb 1, %pj
+        %jnext =l add %j, %i
+        jmp @s.shead
+@s.inc
+        %inext =l add %i, 1
+        jmp @s.head
+@s.end
+
+        # --- count/sum phase ---
+        jmp @c.head
+@c.head
+        %i2 =l phi @s.end 2, @c.inc %i2next
+        %count =l phi @s.end 0, @c.inc %cnext
+        %sum =l phi @s.end 0, @c.inc %snext
+        %cc =w csgel %i2, 10000000
+        jnz %cc, @c.end, @c.body
+@c.body
+        %pi2 =l add %sieve, %i2
+        %isp2 =w loadub %pi2
+        jnz %isp2, @c.skip, @c.add
+@c.add
+        %c1v =l add %count, 1
+        %s1v =l add %sum, %i2
+        jmp @c.mrg
+@c.skip
+        jmp @c.mrg
+@c.mrg
+        %cnext =l phi @c.add %c1v, @c.skip %count
+        %snext =l phi @c.add %s1v, @c.skip %sum
+        jmp @c.inc
+@c.inc
+        %i2next =l add %i2, 1
+        jmp @c.head
+@c.end
+
+        # --- init a[i] = i*2654435761, b[i] = i*40503+1 (mod 2^32) ---
+        jmp @x.head
+@x.head
+        %xi =l phi @c.end 0, @x.body %xnext
+        %cx =w csgel %xi, 262144
+        jnz %cx, @x.end, @x.body
+@x.body
+        %aoff =l mul %xi, 4
+        %apa =l add %abase, %aoff
+        %xav =l mul %xi, 2654435761
+        storew %xav, %apa
+        %bpa =l add %bbase, %aoff
+        %xbv =l mul %xi, 40503
+        %xbv1 =l add %xbv, 1
+        storew %xbv1, %bpa
+        %xnext =l add %xi, 1
+        jmp @x.head
+@x.end
+
+        # --- c = a * b (512x512 uint32, wrapping) ---
+        jmp @m.ihead
+@m.ihead
+        %mi =l phi @x.end 0, @m.jend %minext
+        %miC =w csgel %mi, 512
+        jnz %miC, @m.iend, @m.jhead
+@m.jhead
+        %mj =l phi @m.ihead 0, @m.kend %mjnext
+        %mjC =w csgel %mj, 512
+        jnz %mjC, @m.jend, @m.khead
+@m.khead
+        %mk =l phi @m.jhead 0, @m.kbody %mknext
+        %acc =w phi @m.jhead 0, @m.kbody %accnext
+        %mkC =w csgel %mk, 512
+        jnz %mkC, @m.kend, @m.kbody
+@m.kbody
+        %r0 =l mul %mi, 512
+        %r1 =l add %r0, %mk
+        %r2 =l mul %r1, 4
+        %r3 =l add %abase, %r2
+        %av =w loaduw %r3
+        %r4 =l mul %mk, 512
+        %r5 =l add %r4, %mj
+        %r6 =l mul %r5, 4
+        %r7 =l add %bbase, %r6
+        %bv =w loaduw %r7
+        %prod =w mul %av, %bv
+        %accnext =w add %acc, %prod
+        %mknext =l add %mk, 1
+        jmp @m.khead
+@m.kend
+        %w0 =l mul %mi, 512
+        %w1 =l add %w0, %mj
+        %w2 =l mul %w1, 4
+        %w3 =l add %cbase, %w2
+        storew %acc, %w3
+        %mjnext =l add %mj, 1
+        jmp @m.jhead
+@m.jend
+        %minext =l add %mi, 1
+        jmp @m.ihead
+@m.iend
+
+        # --- corner[i] = c[i*33] ^ c[262143 - i*33] ---
+        jmp @e.head
+@e.head
+        %ei =l phi @m.iend 0, @e.body %einext
+        %eC =w csgel %ei, 16
+        jnz %eC, @e.end, @e.body
+@e.body
+        %t0 =l mul %ei, 33
+        %p1 =l mul %t0, 4
+        %q1 =l add %cbase, %p1
+        %v1 =w loaduw %q1
+        %big =l copy 262143
+        %t1 =l sub %big, %t0
+        %p2 =l mul %t1, 4
+        %q2 =l add %cbase, %p2
+        %v2 =w loaduw %q2
+        %z =w xor %v1, %v2
+        %cp =l mul %ei, 4
+        %cq =l add %corner, %cp
+        storew %z, %cq
+        %einext =l add %ei, 1
+        jmp @e.head
+@e.end
+
+        # --- libc interop: qsort with QBE callback, printf checksum, free ---
+        call $qsort(l %corner, l 16, l 4, l $cmp)
+        %e0 =w loaduw %corner
+        %e15p =l add %corner, 60
+        %e15 =w loaduw %e15p
+        call $printf(l $fmt, ..., l %count, l %sum, w %e0, w %e15)
+        call $free(l %sieve)
+        call $free(l %abase)
+        call $free(l %bbase)
+        call $free(l %cbase)
+        ret 0
+}

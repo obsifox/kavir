@@ -11,6 +11,10 @@ __pycache__/
 .secrets/
 *.local
 
+# Benchmark artifacts (binaries and generated assembly are not sources)
+/benchmarks/**/bin_*
+/benchmarks/**/*.s
+
 # Editor
 .idea/
 .vscode/
