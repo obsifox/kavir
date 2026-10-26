@@ -1,6 +1,8 @@
 # ADR-004: Core type-system direction
 
-Status: proposed (one-way-door checkpoint — user decision pending)
+Status: accepted (direction accepted by user 2026-10-26; the v0.1.0
+implemented subset and cut list below were specified per the user's
+instruction in the same decision)
 Date: 2026-10-26
 Question: Static or gradual? How is null handled? Sum types? Generics
 strategy and timing? Value types now or later?
@@ -28,7 +30,7 @@ runs) and a steeper first day, in exchange for a type story that never needs
 a breaking reset (contrast Dart 2, C-719). For a v0.x experimental language
 whose audience opted in deliberately (ADR-001), B's costs are acceptable.
 
-Decision and reasoning (RECOMMENDATION to user — not yet final): Option B,
+Decision and reasoning (ACCEPTED as direction by the user, 2026-10-26): Option B,
 with these specifics:
 - Soundness contract: the safe subset is sound (no unsound holes); any hole
   is `unsafe` and listed in the illegal-behaviour catalogue (C-320; ties to
@@ -50,6 +52,37 @@ with these specifics:
   builds and defined (wrapping only via explicit operators) otherwise
   (ties to the illegal-behaviour catalogue; C-101/C-103 fixed-semantics
   lesson).
+
+v0.1.0 implemented subset (specified 2026-10-26 per user instruction):
+- Primitives: bool, i8..i64, u8..u64, f32, f64, usize; fixed-width only;
+  no implicit narrowing (explicit casts with defined truncation);
+  overflow checked in debug builds, defined wrapping in release via
+  explicit wrapping operators only.
+- Value types: structs by value from v1; enums as closed sums; match with
+  exhaustiveness checking (tag coverage enforced — never cut).
+- Null: absent; `Option[T]` is a builtin generic; `Result[T,E]` ships if
+  the error-handling ADR work fits the v0.1.0 budget, else v0.2.
+- Generics (minimal monomorphizing core): generic struct/enum definitions
+  with monomorphization (this is how Option/Result/slices are built);
+  generic FUNCTIONS with explicit instantiation, bodies limited to
+  universally-valid operations (construct, field access, move/copy,
+  pass-through). NO traits, NO bounds, NO operator overloading, NO
+  higher-kinded features in v0.1.0 (the dilemma has no free option,
+  C-308/C-309 — we buy the simplest corner).
+- Inference: local `let` inference only; function signatures and API
+  boundaries fully explicit.
+
+Cut list (ordered — remove top-down under schedule pressure; each cut is
+recorded in the release notes; the soundness contract, the no-null rule
+and exhaustiveness are NEVER cut):
+1. Advanced patterns: match guards and nested/tuple patterns (flat
+   enum-tag matching with direct payload bindings only).
+2. User-defined generic functions (Option/Result/slice builtins remain
+   generic internally).
+3. User-defined generic struct/enum definitions (builtins remain
+   generic; the monomorphizer stays, only the user surface shrinks).
+4. Fixed-width zoo reduction: i8/i16/u8/u16 demoted from the surface
+   (keep i32/i64/u32/u64/usize/f64/f32/bool) — last resort.
 
 Reversibility (cheap / costly / one-way): one-way — this is the checkpoint
 definition of a core type-system direction; retrofits are the single most

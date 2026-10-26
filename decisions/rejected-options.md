@@ -41,3 +41,13 @@ considered.
 - Broad-surface v0.1.0 (generics+concurrency+registry+async at once) — the
   never-ships pattern (Perl 6 / Crystal / Julia pre-1.0 limbo); C-715,
   C-722..C-725 — 2026-10-26 (ADR-005, proposed).
+- ADR-005 v1 fixed-bundle order (vertical slice defined as a feature bundle
+  without an end-to-end-first ladder) — REJECTED by the user: milestone
+  order must be a walking skeleton (M1 = return 42 lexer→ELF) —
+  2026-10-26 (ADR-005 v2).
+- Lifetime inference (NLL-class), borrow returns, and struct-field borrows
+  in v0.1.0 — checker complexity the slice cannot carry; deferred to
+  post-0.1 via the ADR-003 subset/cut list; C-620 — 2026-10-26.
+- Traits/bounds and operator overloading in v0.1.0 — the generics dilemma
+  has no free option; v0.1.0 buys the simplest monomorphizing corner;
+  C-308/C-309 — 2026-10-26 (ADR-004 subset).

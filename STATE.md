@@ -25,8 +25,22 @@ Summary of last session:
   Go history caution); falsification gates: perf >10x vs gcc -O2, schedule
   gate with explicit as/ld fallback re-decision, IR-purity gate. ADR-005
   QBE references amended for consistency.
-- ADR-003/004/005: one-line summaries (recommendation + evidence IDs + main
-  rejected option) presented; user will answer EACH SEPARATELY.
+- ADR-003/004: one-line summaries (recommendation + evidence IDs + main
+  rejected option) presented; user answered SEPARATELY: BOTH ACCEPTED as
+  directions, with v0.1.0 subset + ordered cut lists specified by the
+  coordinator per user instruction (ADR-003: lexical borrows, no lifetime
+  inference, no borrow returns, no field borrows; cut order unsafe ->
+  user borrow params -> &mut. ADR-004: minimal monomorphizing core, no
+  traits/bounds; cut order advanced patterns -> user generic fns -> user
+  generic types -> narrow ints).
+- ADR-005 v1 REJECTED by user: milestone order must be a WALKING SKELETON
+  (M1 = `return 42` lexer→ELF) and the codegen/ELF/runtime cost must be
+  estimated first. ADR-005 v2 re-proposed on that basis: LOC estimate
+  ~9-15k (codegen 3-5k, ELF 0.5-1k, kavirrt 0.3-0.6k, frontend 4-6k,
+  tooling 1-2k), ladder M1..M7, scope = M6 minus ADR-003/004 cuts.
+  AWAITING USER APPROVAL; on approval M1 starts Phase 3.
+- User also confirmed: compiler bootstrap in C17+gcc accepted with the
+  binding condition that compiled-program output NEVER passes cc.
 - check_evidence.py normal + --gate: 0 errors (3 known warnings).
 - Compiler implementation language: C17 (sandbox has gcc only). Boundary per
   ADR-002 v2: no-cc applies to compiled Kavir programs; the compiler itself
@@ -48,18 +62,18 @@ be third-party (LLVM/Cranelift/QBE); ADR-002 v2 bans third-party backends
 in the shipped v0.x path only.
 
 Next three steps:
-1. USER CHECKPOINT 2 continues: user answers ADR-003/004/005 separately
-   (summaries presented 2026-10-26); flip statuses to accepted and log in
-   decision-log.md.
+1. USER approval of ADR-005 v2 (walking skeleton) — on approval, Phase 3
+   starts with M1 immediately.
 2. Remaining ADRs (not one-way doors, Claude's call with evidence): error
-   handling (Result+match, no exceptions), concurrency (postpone past
+   handling (Result+match, no exceptions; Result in v0.1.0 only if the
+   ADR-005 v2 budget allows, else v0.2), concurrency (postpone past
    v0.1.0), modules/build/versioning (lockfile+checksums), FFI/ABI (MUST
-   now define a no-libc freestanding interop story per ADR-002 v2 —
-   C-library FFI is out of v0.1.0), surface syntax (last, cheapest).
-3. Phase 3 prototype slice per ADR-002 v2: kavir compiler in C17 → Kavir
-   IR → own x86-64 encoder → internal ELF writer + kavirrt (_start +
-   direct syscalls); lexer→parser→checker→codegen with conformance suite +
-   fuzz targets from day one (per ADR-005 scope).
+   define a no-libc freestanding interop story per ADR-002 v2), surface
+   syntax (last, cheapest).
+3. Phase 3 M1 walking skeleton per ADR-005 v2: kavir compiler in C17 →
+   Kavir IR → own x86-64 encoder → internal ELF writer + kavirrt
+   (_start + direct syscalls); milestone ladder M1..M7; conformance
+   suite + fuzz targets from day one.
 
 GitHub: private repo obsifox/kavir (remote origin). Token handled via env var only,
 never stored in tracked files; not revoked or deleted (user instruction).
