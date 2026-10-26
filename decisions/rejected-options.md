@@ -14,8 +14,22 @@ considered.
   AOT closed-world costs documented by both vendors; C-201..C-210 —
   2026-10-26 (ADR-002, proposed).
 - Custom optimizing backend from scratch — Go's own history shows it needs
-  institutional funding and years; C-419/C-420 — 2026-10-26 (ADR-002,
-  proposed).
+  institutional funding and years; C-419/C-420 — 2026-10-26 (ADR-002 v1).
+  SUPERSEDED same day: the user explicitly CHOSE this path with binding
+  constraints (direct machine code, no cc, no libc) — accepted risk, see
+  ADR-002 v2; the thin IR and falsification gates are the mitigations.
+- QBE-first via cc (original ADR-002 recommendation) — every produced
+  binary would pass through a C toolchain path, excluded by user constraint;
+  C-413, C-405 — 2026-10-26 (ADR-002 v2, user decision).
+- Assembly text + GNU binutils as/ld as the v0.1.0 build path — still an
+  external-toolchain dependency and target-default coupling (C-517);
+  retained ONLY as an explicit fallback requiring a fresh user decision if
+  the ELF/ABI work stalls (ADR-002 falsification gate 2) — 2026-10-26
+  (ADR-002 v2).
+- libc linkage in compiled programs (stdio/malloc/sanitizers via libc) —
+  user constraint: direct syscalls only, freestanding runtime (kavirrt);
+  C-516 — 2026-10-26 (ADR-002 v2). Consequence: C-library FFI is out of
+  v0.1.0 scope.
 - Tracing GC in v0.1.0 — runtime weight contradicts AOT-native minimal
   runtime; pause claims are vendor-single-sided (conflict #9); C-613, C-211,
   C-212 — 2026-10-26 (ADR-003, proposed).
