@@ -1,20 +1,222 @@
-/* ir.c — Kavir IR construction and text dump (M1 subset).
+/* ir.c — Kavir IR construction and text dump (M2 subset).
  *
- * M1 IR is a flat instruction list per function over virtual registers:
- *   IR_CONST dest, imm       — materialize an i32 immediate
- *   IR_RET   operand         — return a register value from the function
+ * M2 IR is a flat instruction list per function over virtual registers
+ * (ADR-008 decision 5). The two M1 opcodes keep their exact meaning;
+ * M2 adds arithmetic (trap per ADR-007), output, and jumps whose
+ * targets are instruction indices patched from forward labels:
  *
- * The IR is the frontend/backend seam (ADR-002 v2): the backend consumes
- * it, and the interpreter executes it as the reference semantics. In M1
- * the register allocator is trivial (one value, one register); it
- * generalizes in M2/M3.
+ *   IR_CONST    dest, imm          — materialize an i32 immediate
+ *   IR_RET      src1               — return a vreg from the function
+ *   IR_ADD/SUB/MUL/DIV/REM d,s1,s2 — i32 arithmetic (trap on overflow,
+ *                                    division by zero, INT_MIN over -1)
+ *   IR_PRINT    dest               — print a vreg as decimal
+ *   IR_PRINT_STR str_idx           — print string-table bytes
+ *   IR_JMP      target             — unconditional jump
+ *   IR_JMPZ     src1, target       — jump when vreg == 0
+ *
+ * Evaluation order is fixed by construction: left operand, then right
+ * operand, then the operation (ADR-008 decision 2) — observable through
+ * traps between prints.
  */
 #include "kavir.h"
 #include <string.h>
 
-static void ir_build_fn(const Fn *fn, IrFn *out) {
+typedef struct {
+    IrFn *out;
+    int vreg;
+    int label_fix[KAVIR_MAX_LABELS * 2][2]; /* {inst index, label id} */
+    int nfix;
+    const char *file;
+} IrBuild;
+
+static int irf_add(IrBuild *b, const IrInst *in) {
+    if (b->out->ninsts >= KAVIR_MAX_INSTS) {
+        kavir_error(b->file, in->line, in->col,
+                    "function too large (M2 limit %d IR instructions per "
+                    "function)", KAVIR_MAX_INSTS);
+        return -1;
+    }
+    b->out->insts[b->out->ninsts++] = *in;
+    return 0;
+}
+
+static int new_label(IrBuild *b) {
+    if (b->out->nlabels >= KAVIR_MAX_LABELS) {
+        kavir_error(b->file, 1, 1,
+                    "too many labels (M2 limit %d per function)",
+                    KAVIR_MAX_LABELS);
+        return -1;
+    }
+    b->out->labels[b->out->nlabels] = -1; /* resolved when placed */
+    return b->out->nlabels++;
+}
+
+static int place_label(IrBuild *b, int label) {
+    b->out->labels[label] = b->out->ninsts;
+    return 0;
+}
+
+static void fix_labels(IrBuild *b) {
+    int i;
+    for (i = 0; i < b->nfix; i++) {
+        int inst_at = b->label_fix[i][0];
+        int label = b->label_fix[i][1];
+        b->out->insts[inst_at].target = b->out->labels[label];
+    }
+}
+
+/* Lowers an expression; returns the vreg holding its value, or -1. */
+static int lower_expr(IrBuild *b, const Program *prog, int eidx) {
+    const Expr *e = &prog->exprs[eidx];
+
+    switch (e->kind) {
+    case EX_INT: {
+        IrInst in;
+        memset(&in, 0, sizeof(in));
+        in.op = IR_CONST;
+        in.dest = b->vreg++;
+        /* checker guarantees val <= INT32_MAX here */
+        in.val = (long long)e->val;
+        in.line = e->line;
+        in.col = e->col;
+        if (irf_add(b, &in) != 0) return -1;
+        return in.dest;
+    }
+    case EX_NEG: {
+        /* Compile-time literal interpretation (ADR-008 decision 1):
+         * the checker already bounded the operand; 2147483648 becomes
+         * INT32_MIN here. This is numeral interpretation, NOT
+         * arithmetic folding. */
+        IrInst in;
+        long long v = -(long long)prog->exprs[e->a].val;
+        memset(&in, 0, sizeof(in));
+        in.op = IR_CONST;
+        in.dest = b->vreg++;
+        in.val = v;
+        in.line = e->line;
+        in.col = e->col;
+        if (irf_add(b, &in) != 0) return -1;
+        return in.dest;
+    }
+    case EX_BIN: {
+        int l = lower_expr(b, prog, e->a);
+        int r, dst;
+        IrInst in;
+        if (l < 0) return -1;
+        r = lower_expr(b, prog, e->b);
+        if (r < 0) return -1;
+        memset(&in, 0, sizeof(in));
+        switch (e->op) {
+        case BIN_ADD: in.op = IR_ADD; break;
+        case BIN_SUB: in.op = IR_SUB; break;
+        case BIN_MUL: in.op = IR_MUL; break;
+        case BIN_DIV: in.op = IR_DIV; break;
+        case BIN_REM: in.op = IR_REM; break;
+        }
+        in.dest = b->vreg++;
+        in.src1 = l;
+        in.src2 = r;
+        in.line = e->line; /* operator position (trap messages) */
+        in.col = e->col;
+        dst = in.dest;
+        if (irf_add(b, &in) != 0) return -1;
+        return dst;
+    }
+    }
+    return -1;
+}
+
+static int lower_stmts(IrBuild *b, const Program *prog, const Block *blk) {
     int s;
-    int vreg = 0;
+    for (s = 0; s < blk->nstmts; s++) {
+        const Stmt *st = &blk->stmts[s];
+        switch (st->kind) {
+        case ST_RETURN: {
+            int v = lower_expr(b, prog, st->expr_idx);
+            IrInst in;
+            if (v < 0) return -1;
+            memset(&in, 0, sizeof(in));
+            in.op = IR_RET;
+            in.src1 = v;
+            in.line = st->line;
+            in.col = st->col;
+            if (irf_add(b, &in) != 0) return -1;
+            break;
+        }
+        case ST_PRINT: {
+            int v = lower_expr(b, prog, st->expr_idx);
+            IrInst in;
+            if (v < 0) return -1;
+            memset(&in, 0, sizeof(in));
+            in.op = IR_PRINT;
+            in.dest = v;
+            in.line = st->line;
+            in.col = st->col;
+            if (irf_add(b, &in) != 0) return -1;
+            break;
+        }
+        case ST_PRINT_STR: {
+            IrInst in;
+            memset(&in, 0, sizeof(in));
+            in.op = IR_PRINT_STR;
+            in.str_idx = st->str_idx;
+            in.line = st->line;
+            in.col = st->col;
+            if (irf_add(b, &in) != 0) return -1;
+            break;
+        }
+        case ST_IF: {
+            int c = lower_expr(b, prog, st->expr_idx);
+            int jz, jend = -1, l_else, l_end;
+            IrInst in;
+            if (c < 0) return -1;
+            memset(&in, 0, sizeof(in));
+            in.op = IR_JMPZ;
+            in.src1 = c;
+            in.line = st->line;
+            in.col = st->col;
+            jz = b->out->ninsts;
+            if (irf_add(b, &in) != 0) return -1;
+            l_else = new_label(b);
+            if (l_else < 0) return -1;
+            b->label_fix[b->nfix][0] = jz;
+            b->label_fix[b->nfix][1] = l_else;
+            b->nfix++;
+
+            if (lower_stmts(b, prog, &prog->blocks[st->then_block]) != 0)
+                return -1;
+
+            if (st->else_block >= 0) {
+                /* jump over the else-branch */
+                memset(&in, 0, sizeof(in));
+                in.op = IR_JMP;
+                in.line = st->line;
+                in.col = st->col;
+                jend = b->out->ninsts;
+                if (irf_add(b, &in) != 0) return -1;
+                l_end = new_label(b);
+                if (l_end < 0) return -1;
+                b->label_fix[b->nfix][0] = jend;
+                b->label_fix[b->nfix][1] = l_end;
+                b->nfix++;
+                place_label(b, l_else);
+                if (lower_stmts(b, prog, &prog->blocks[st->else_block]) != 0)
+                    return -1;
+                place_label(b, l_end);
+            } else {
+                place_label(b, l_else);
+            }
+            break;
+        }
+        }
+    }
+    return 0;
+}
+
+static int ir_build_fn(const char *file, const Fn *fn, const Program *prog,
+                       IrFn *out) {
+    IrBuild b;
+    int rc;
 
     memset(out, 0, sizeof(*out));
     {
@@ -26,58 +228,99 @@ static void ir_build_fn(const Fn *fn, IrFn *out) {
         out->name[i] = '\0';
     }
     out->ret_is_i32 = fn->ret_is_i32;
-    out->ninsts = 0;
 
-    for (s = 0; s < fn->nstmts; s++) {
-        const Stmt *st = &fn->stmts[s];
-        if (st->kind != ST_RETURN) continue; /* checker guarantees shape */
-        if (out->ninsts + 2 > KAVIR_MAX_INSTS) {
-            /* capacity is checked in the checker path; defensive */
-            return;
-        }
-        out->insts[out->ninsts].op = IR_CONST;
-        out->insts[out->ninsts].dest = vreg;
-        /* safe: the checker guarantees expr.val <= INT32_MAX (ADR-007) */
-        out->insts[out->ninsts].val = (long long)st->expr.val;
-        out->insts[out->ninsts].line = st->expr.line;
-        out->insts[out->ninsts].col = st->expr.col;
-        out->ninsts++;
+    b.out = out;
+    b.vreg = 0;
+    b.nfix = 0;
+    b.file = file;
 
-        out->insts[out->ninsts].op = IR_RET;
-        out->insts[out->ninsts].operand = vreg;
-        out->insts[out->ninsts].line = st->line;
-        out->insts[out->ninsts].col = st->col;
-        out->ninsts++;
-
-        vreg++;
-    }
+    rc = lower_stmts(&b, prog, &prog->blocks[fn->body_block]);
+    if (rc == 0) fix_labels(&b);
+    return rc;
 }
 
-void ir_build(const Program *prog, IrModule *mod) {
+int ir_build(const char *file, const Program *prog, IrModule *mod) {
     int i;
     memset(mod, 0, sizeof(*mod));
     mod->nfns = prog->nfns;
+    mod->nstrings = prog->nstrings;
+    mod->file = NULL;
+    for (i = 0; i < prog->nstrings; i++) {
+        memcpy(mod->strings[i], prog->strings[i], (size_t)prog->str_lens[i]);
+        mod->strings[i][prog->str_lens[i]] = '\0';
+        mod->str_lens[i] = prog->str_lens[i];
+    }
     for (i = 0; i < prog->nfns; i++)
-        ir_build_fn(&prog->fns[i], &mod->fns[i]);
+        if (ir_build_fn(file, &prog->fns[i], prog, &mod->fns[i]) != 0)
+            return -1;
+    return 0;
+}
+
+/* prints s with \n, \t, \r, \\, \" re-escaped for the text dump */
+static void dump_escaped(FILE *out, const char *s, int len) {
+    int i;
+    for (i = 0; i < len; i++) {
+        unsigned char c = (unsigned char)s[i];
+        switch (c) {
+        case '\n': fputs("\\n", out); break;
+        case '\t': fputs("\\t", out); break;
+        case '\r': fputs("\\r", out); break;
+        case '\\': fputs("\\\\", out); break;
+        case '"':  fputs("\\\"", out); break;
+        default:
+            if (c >= 32 && c < 127) fputc((int)c, out);
+            else fprintf(out, "\\x%02x", (unsigned)c);
+        }
+    }
 }
 
 void ir_dump(const IrModule *mod, FILE *out) {
-    int i, k;
+    int i, k, l;
     for (i = 0; i < mod->nfns; i++) {
         const IrFn *fn = &mod->fns[i];
         fprintf(out, "fn %s() -> %s {\n", fn->name,
                 fn->ret_is_i32 ? "i32" : "?");
         for (k = 0; k < fn->ninsts; k++) {
             const IrInst *in = &fn->insts[k];
+            int l;
+            for (l = 0; l < fn->nlabels; l++)
+                if (fn->labels[l] == k) fprintf(out, "  L%d:\n", l);
             switch (in->op) {
             case IR_CONST:
                 fprintf(out, "  %%r%d = const %lld\n", in->dest, in->val);
                 break;
             case IR_RET:
-                fprintf(out, "  ret %%r%d\n", in->operand);
+                fprintf(out, "  ret %%r%d\n", in->src1);
+                break;
+            case IR_ADD: case IR_SUB: case IR_MUL:
+            case IR_DIV: case IR_REM: {
+                const char *name = in->op == IR_ADD ? "add" :
+                                   in->op == IR_SUB ? "sub" :
+                                   in->op == IR_MUL ? "mul" :
+                                   in->op == IR_DIV ? "div" : "rem";
+                fprintf(out, "  %%r%d = %s %%r%d, %%r%d\n",
+                        in->dest, name, in->src1, in->src2);
+                break;
+            }
+            case IR_PRINT:
+                fprintf(out, "  print %%r%d\n", in->dest);
+                break;
+            case IR_PRINT_STR:
+                fprintf(out, "  print_str \"");
+                dump_escaped(out, mod->strings[in->str_idx],
+                             mod->str_lens[in->str_idx]);
+                fprintf(out, "\"\n");
+                break;
+            case IR_JMP:
+                fprintf(out, "  jmp L%d\n", in->target);
+                break;
+            case IR_JMPZ:
+                fprintf(out, "  jmpz %%r%d, L%d\n", in->src1, in->target);
                 break;
             }
         }
+        for (l = 0; l < fn->nlabels; l++)
+            if (fn->labels[l] == fn->ninsts) fprintf(out, "  L%d:\n", l);
         fprintf(out, "}\n");
     }
 }

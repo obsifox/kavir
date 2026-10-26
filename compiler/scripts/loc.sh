@@ -1,12 +1,17 @@
 #!/bin/sh
-# LOC accounting with an EXPLICIT definition (M1.1 review item 6).
+# LOC accounting with an EXPLICIT definition (M1.1 review item 6;
+# M2 additions keep every number's definition next to it).
 #
-# Definition (used in all Kavir reports):
-#   "C LOC" = lines in compiler/src/*.c PLUS the single header
-#             compiler/src/kavir.h.
-#   Test harness (tests/run.sh, shell) and fuzz scripts (scripts/*.py,
-#   Python; fuzz/fuzz_frontend.c counts as C when present) are reported
-#   separately and are NOT part of "C LOC".
+# Definitions (used in all Kavir reports):
+#   "C LOC"       = lines in compiler/src/*.c PLUS the single header
+#                   compiler/src/kavir.h.
+#   "Harness C"   = fuzz/fuzz_frontend.c (libFuzzer harness).
+#   "Tooling PY"  = tests/reference.py (independent oracle),
+#                   tests/run_m2.py (three-way runner),
+#                   scripts/fuzz.py (fuzz driver) — Python lines.
+#   "Suite SH"    = tests/run.sh (M1.1 shell suite).
+#   Fixtures      = number of .k case files (not counted as LOC).
+# None of these are summed into "C LOC"; categories are never mixed.
 # Usage: sh scripts/loc.sh
 cd "$(dirname "$0")/.."
 
@@ -22,8 +27,18 @@ echo "-----------------------------------------"
 printf '%8d  TOTAL C LOC  (%d .c + %d header)\n' "$c_loc" "$c_only" "$h_loc"
 
 if [ -f fuzz/fuzz_frontend.c ]; then
-    printf '%8d  fuzz/fuzz_frontend.c (C, reported separately)\n' \
+    printf '%8d  Harness C LOC  (fuzz/fuzz_frontend.c)\n' \
         "$(wc -l < fuzz/fuzz_frontend.c)"
 fi
-printf '%8d  tests/run.sh (shell, reported separately)\n' "$(wc -l < tests/run.sh)"
-printf '%8d  scripts/fuzz.py (python, reported separately)\n' "$(wc -l < scripts/fuzz.py)"
+printf '%8d  Tooling PY LOC (tests/reference.py — independent oracle)\n' \
+    "$(wc -l < tests/reference.py)"
+printf '%8d  Tooling PY LOC (tests/run_m2.py — three-way runner)\n' \
+    "$(wc -l < tests/run_m2.py)"
+printf '%8d  Tooling PY LOC (scripts/fuzz.py — fuzz driver)\n' \
+    "$(wc -l < scripts/fuzz.py)"
+printf '%8d  Suite SH LOC   (tests/run.sh — M1.1 suite)\n' \
+    "$(wc -l < tests/run.sh)"
+printf '     %4d fixtures  (tests/fixtures/*.k, M1 boundary corpus)\n' \
+    "$(ls tests/fixtures/*.k | wc -l)"
+printf '     %4d fixtures  (tests/cases_m2/*.k, M2 three-way corpus)\n' \
+    "$(ls tests/cases_m2/*.k | wc -l)"

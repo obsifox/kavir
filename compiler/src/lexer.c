@@ -1,7 +1,9 @@
-/* lexer.c — Kavir lexer (M1 subset).
+/* lexer.c — Kavir lexer (M2 subset; M2 surface is TEMPORARY, ADR-008 §0).
  *
- * Tokens: keywords fn/return/i32, identifiers, integer literals,
- * punctuation ( ) { } ; ->, // line comments.
+ * Tokens: keywords fn/return/i32/if/else/print, identifiers, integer
+ * literals, string literals (escapes \n \t \r \\ \", UTF-8 bytes pass
+ * through), punctuation ( ) { } ; -> and operators + - * / %.
+ * // line comments.
  * Every token carries a file:line:col position (C-313 diagnostics rule).
  */
 #include "kavir.h"
@@ -51,6 +53,8 @@ static void set_token(Token *t, TokKind kind, const char *file,
     t->int_val = val;
     t->line = line;
     t->col = col;
+    t->str_len = 0;
+    t->str[0] = '\0';
     if (lex != NULL) {
         size_t i = 0;
         while (lex[i] != '\0' && i < KAVIR_MAX_NAME - 1) {
@@ -64,11 +68,83 @@ static void set_token(Token *t, TokKind kind, const char *file,
     (void)file;
 }
 
+/* T_STR token: decoded bytes live in t->str (max 127), len in t->len. */
+static void set_token_str(Token *t, const char *file, int line, int col,
+                          const char *bytes, int len) {
+    int i;
+    t->kind = T_STR;
+    t->int_val = 0;
+    t->line = line;
+    t->col = col;
+    t->str_len = len;
+    for (i = 0; i < len; i++) t->str[i] = bytes[i];
+    t->str[len] = '\0';
+    t->lex[0] = '\0';
+    (void)file;
+}
+
 static int is_ident_start(int c) {
     return isalpha(c) || c == '_';
 }
 static int is_ident_cont(int c) {
     return isalnum(c) || c == '_';
+}
+
+/* Scans a string literal (opening quote already under the cursor).
+ * Returns 0 and fills out (bytes+len), or -1 with a diagnostic. */
+static int lex_string(Lexer *lx, const char *file,
+                      char *out, int *out_len) {
+    int line = lx->line, col = lx->col;
+    int len = 0;
+
+    adv(lx); /* consume opening '"' */
+    for (;;) {
+        int c = cur(lx);
+        if (c == 0 || c == '\n') {
+            kavir_error(file, line, col,
+                        "unterminated string literal (closing '\"' missing "
+                        "before end of line; use \\n for a newline)");
+            return -1;
+        }
+        if (c == '"') {
+            adv(lx);
+            *out_len = len;
+            return 0;
+        }
+        if (c == '\\') {
+            int e;
+            adv(lx); /* consume backslash */
+            e = cur(lx);
+            switch (e) {
+            case 'n':  if (len < KAVIR_MAX_STR - 1) out[len++] = '\n'; break;
+            case 't':  if (len < KAVIR_MAX_STR - 1) out[len++] = '\t'; break;
+            case 'r':  if (len < KAVIR_MAX_STR - 1) out[len++] = '\r'; break;
+            case '\\': if (len < KAVIR_MAX_STR - 1) out[len++] = '\\'; break;
+            case '"':  if (len < KAVIR_MAX_STR - 1) out[len++] = '"';  break;
+            case 0:
+                kavir_error(file, line, col, "unterminated string literal");
+                return -1;
+            default:
+                kavir_error(file, lx->line, lx->col,
+                            "unknown escape '\\%c' in string literal "
+                            "(M2 supports \\n \\t \\r \\\\ \\\")",
+                            (e >= 32 && e < 127) ? e : '?');
+                return -1;
+            }
+            adv(lx);
+            continue;
+        }
+        /* Any other byte (including >= 0x80 UTF-8 continuation bytes)
+         * passes through unchanged (ADR-008 decision 4). */
+        if (len >= KAVIR_MAX_STR - 1) {
+            kavir_error(file, line, col,
+                        "string literal too long (M2 limit %d bytes)",
+                        KAVIR_MAX_STR - 1);
+            return -1;
+        }
+        out[len++] = (char)c;
+        adv(lx);
+    }
 }
 
 int lex(const char *file, const char *src, Token *toks, int max) {
@@ -100,7 +176,8 @@ int lex(const char *file, const char *src, Token *toks, int max) {
         }
 
         if (n >= max - 1) {
-            kavir_error(file, lx.line, lx.col, "too many tokens (M1 limit %d)", max);
+            kavir_error(file, lx.line, lx.col,
+                        "too many tokens (limit %d)", max);
             return -1;
         }
 
@@ -111,6 +188,15 @@ int lex(const char *file, const char *src, Token *toks, int max) {
             set_token(&toks[n], T_EOF, file, tok_line, tok_col, NULL, 0);
             n++;
             return n;
+        }
+
+        if (c == '"') {
+            if (lex_string(&lx, file, toks[n].str, &toks[n].str_len) != 0)
+                return -1;
+            set_token_str(&toks[n], file, tok_line, tok_col,
+                          toks[n].str, toks[n].str_len);
+            n++;
+            continue;
         }
 
         if (is_ident_start(c)) {
@@ -138,6 +224,12 @@ int lex(const char *file, const char *src, Token *toks, int max) {
                 set_token(&toks[n], T_RETURN, file, tok_line, tok_col, buf, 0);
             else if (strcmp(buf, "i32") == 0)
                 set_token(&toks[n], T_I32, file, tok_line, tok_col, buf, 0);
+            else if (strcmp(buf, "if") == 0)
+                set_token(&toks[n], T_IF, file, tok_line, tok_col, buf, 0);
+            else if (strcmp(buf, "else") == 0)
+                set_token(&toks[n], T_ELSE, file, tok_line, tok_col, buf, 0);
+            else if (strcmp(buf, "print") == 0)
+                set_token(&toks[n], T_PRINT, file, tok_line, tok_col, buf, 0);
             else
                 set_token(&toks[n], T_IDENT, file, tok_line, tok_col, buf, 0);
             n++;
@@ -146,12 +238,9 @@ int lex(const char *file, const char *src, Token *toks, int max) {
 
         if (isdigit(c)) {
             /* ADR-007: accumulate UNSIGNED and check BEFORE the multiply,
-             * so no signed-overflow UB is reachable. The M1.1 review found
-             * the previous code multiplied first (`v = v*10 + d` then
-             * compared), which wrapped e.g. 2^63 into a negative value
-             * that then slipped past the checker's range test.
-             * Values up to UINT64_MAX lex fine; the checker rejects
-             * anything above INT32_MAX. */
+             * so no signed-overflow UB is reachable. Values up to
+             * UINT64_MAX lex fine; the checker rejects anything above
+             * INT32_MAX (with the -2147483648 special case, ADR-008). */
             unsigned long long v = 0;
             while (isdigit(cur(&lx)) && cur(&lx) != 0) {
                 unsigned long long d = (unsigned long long)(cur(&lx) - '0');
@@ -183,9 +272,15 @@ int lex(const char *file, const char *src, Token *toks, int max) {
         case '{': set_token(&toks[n], T_LBRACE, file, tok_line, tok_col, "{", 0); adv(&lx); n++; continue;
         case '}': set_token(&toks[n], T_RBRACE, file, tok_line, tok_col, "}", 0); adv(&lx); n++; continue;
         case ';': set_token(&toks[n], T_SEMI, file, tok_line, tok_col, ";", 0); adv(&lx); n++; continue;
+        case '+': set_token(&toks[n], T_PLUS, file, tok_line, tok_col, "+", 0); adv(&lx); n++; continue;
+        case '-': set_token(&toks[n], T_MINUS, file, tok_line, tok_col, "-", 0); adv(&lx); n++; continue;
+        case '*': set_token(&toks[n], T_STAR, file, tok_line, tok_col, "*", 0); adv(&lx); n++; continue;
+        case '/': set_token(&toks[n], T_SLASH, file, tok_line, tok_col, "/", 0); adv(&lx); n++; continue;
+        case '%': set_token(&toks[n], T_PERCENT, file, tok_line, tok_col, "%", 0); adv(&lx); n++; continue;
         default:
             kavir_error(file, tok_line, tok_col,
-                        "unexpected character '%c' (0x%02x) — not part of the M1 surface",
+                        "unexpected character '%c' (0x%02x) — not part of "
+                        "the M2 surface",
                         (c >= 32 && c < 127) ? c : '?', (unsigned)c);
             return -1;
         }

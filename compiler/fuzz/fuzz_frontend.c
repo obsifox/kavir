@@ -1,9 +1,7 @@
-/* fuzz_frontend.c — libFuzzer harness for the Kavir frontend + backend
- * (M1.1 review item 3; ADR-005 v3 amendment b).
+/* fuzz_frontend.c — libFuzzer harness for the Kavir M2 pipeline
+ * (ADR-005 v3 amendment b; ADR-008 decision 8).
  *
- * libFuzzer is shipped with clang only (gcc does not provide it), so this
- * harness builds with clang and NOT with the plain gcc build used in this
- * environment:
+ * libFuzzer is shipped with clang only (gcc does not provide it):
  *
  *   make kavir-libfuzzer          (errors out with guidance if no clang)
  *   make fuzz-libfuzzer           (runs it against corpus/ for 60s)
@@ -17,9 +15,11 @@
  *   mkdir -p corpus && ./kavir-libfuzzer corpus -max_len=2048 \
  *     -print_final_stats=1 -detect_leaks=0
  *
- * In-process: one input goes through lex -> parse -> check -> ir_build ->
- * interp_run -> target emit, the same stages the driver exercises, but
- * with real coverage feedback. Sanitizer abort on the first bad input.
+ * In-process: one input goes through lex -> parse -> check -> ir_build
+ * -> interp (quiet) -> target emit, the same stages the driver
+ * exercises, with real coverage feedback. Traps are REPORTED (not
+ * exited) and stdout is suppressed via interp_set_quiet so the harness
+ * output stays readable. Sanitizer abort on the first bad input.
  */
 #include "../src/kavir.h"
 #include <stdint.h>
@@ -32,6 +32,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
     unsigned char *buf;
     Program prog;
     IrModule mod;
+    InterpResult res;
     char errbuf[KAVIR_MAX_ERR];
     int n, out_size = 0, entry_off = 0;
 
@@ -49,15 +50,22 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
         if (n >= 0) {
             if (parse("fuzz", toks, n, &prog) == 0) {
                 if (check("fuzz", &prog) == 0) {
-                    ir_build(&prog, &mod);
-                    (void)interp_run(&mod);
-                    buf = (unsigned char *)malloc(KAVIR_MAX_CODE);
-                    if (buf != NULL) {
-                        errbuf[0] = '\0';
-                        (void)target_x86_64_linux_emit(
-                            &mod, buf, KAVIR_MAX_CODE,
-                            &out_size, &entry_off, errbuf, KAVIR_MAX_ERR);
-                        free(buf);
+                    if (ir_build("fuzz", &prog, &mod) == 0) {
+                        mod.file = "fuzz";
+                        interp_set_quiet(1);
+                        if (interp_run(&mod, &res) != 0) {
+                            /* internal interpreter error: invalid state,
+                             * must never happen on a checked program */
+                            abort();
+                        }
+                        buf = (unsigned char *)malloc(KAVIR_MAX_CODE);
+                        if (buf != NULL) {
+                            errbuf[0] = '\0';
+                            (void)target_x86_64_linux_emit(
+                                &mod, buf, KAVIR_MAX_CODE,
+                                &out_size, &entry_off, errbuf, KAVIR_MAX_ERR);
+                            free(buf);
+                        }
                     }
                 }
             }

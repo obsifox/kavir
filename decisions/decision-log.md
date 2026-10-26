@@ -88,3 +88,28 @@ One line per ADR: number, title, status, date. Superseded decisions stay listed.
   GitHub repo obsifox/kavir is currently PUBLIC. Per user instruction
   ("report and wait; do not change the status"), neither the repo
   visibility nor the two documents have been touched.
+- 2026-10-26: USER DECISIONS recorded (M2 kickoff message): ADR-007
+  ACCEPTED by the user; git history must NOT be rewritten; repo
+  visibility unchanged and README.md/STATE.md FROZEN until the user
+  announces the private/public decision; language name final (Kavir);
+  licensing fully set aside (no LICENSE/SPDX/clauses, none to be
+  suggested); GitHub token env-var-only, never written anywhere;
+  M1.1/M1.2 reclassified as AUTHOR-APPROVED (independent verification
+  of 28ba9f1 will be done by a third party).
+- 2026-10-26: ADR-008 (M2 output/arithmetic/if-else runtime contract)
+  ACCEPTED under the user's delegation for small decisions; scope
+  itself user-mandated. Pins: trap exit code 101 + exact trap message
+  bytes (fills the ADR-007 placeholder); NO constant folding of
+  arithmetic in M2 (keeps the ADR-007 trap path real and testable);
+  division truncates toward zero; INT32_MIN / -1 and INT32_MIN % -1
+  trap; print adds no newline; unary minus is literal-only with the
+  2147483648 special case defining INT32_MIN; surface grammar recorded
+  as TEMPORARY (syntax is finalized LAST per the user's rule); IR
+  extended additively (M1 opcodes unchanged; IR is internal and never
+  persisted); no RW PT_LOAD in M2 (nothing needs it yet).
+- 2026-10-26: ADR-009 (source file extension) PROPOSED with collision
+  research: .kv collides with Kivy (required extension), .k with
+  kdb+/q's K language; candidates .kavir (no collision), .kvr
+  (effectively unclaimed), .kav (no hard collision, soft Kaspersky-
+  abbreviation concern). DECISION RESERVED TO THE USER; the repo keeps
+  the temporary .k naming until then.

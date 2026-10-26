@@ -1,0 +1,5 @@
+// expect-error: expected ';'
+fn main() -> i32 {
+    print(1)
+    return 0;
+}

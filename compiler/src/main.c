@@ -1,13 +1,16 @@
-/* main.c — kavir driver (M1).
+/* main.c — kavir driver (M2).
  *
  * Subcommands:
  *   kavir build <in.k> -o <out>   compile to a static ELF executable
  *   kavir interp <in.k>           execute the IR directly (reference
- *                                 semantics); exits with main's value
+ *                                 semantics); prints to stdout like the
+ *                                 ELF, reports traps identically
  *   kavir dump-ir <in.k>          print the IR text
  *
- * Exit codes: 0 success; 1 compile error; 2 usage/IO error.
- * The compiled-program path NEVER touches cc/as/ld (ADR-002 v2).
+ * Exit codes: 0 success; 1 compile error; 2 usage/IO error; a runtime
+ * TRAP in 'interp' exits 101 exactly like the compiled program
+ * (ADR-008 decision 3). The compiled-program path NEVER touches
+ * cc/as/ld (ADR-002 v2).
  */
 #include "kavir.h"
 #include <stdlib.h>
@@ -69,7 +72,8 @@ static int frontend(const char *path, IrModule *mod) {
     if (parse(path, toks, ntoks, &prog) != 0) goto done;
     if (check(path, &prog) != 0) goto done;
 
-    ir_build(&prog, mod);
+    if (ir_build(path, &prog, mod) != 0) goto done;
+    mod->file = path; /* used for trap diagnostics (ADR-008 decision 3) */
     rc = 0;
 
 done:
@@ -125,11 +129,16 @@ done:
 
 static int cmd_interp(const char *in_path) {
     IrModule mod;
-    long long v;
+    InterpResult r;
     if (frontend(in_path, &mod) != 0) return 1;
-    v = interp_run(&mod);
+    if (interp_run(&mod, &r) != 0) return 1;
+    if (r.trapped) {
+        /* identical bytes to the compiled program's trap line */
+        fputs(r.trap_msg, stderr);
+        return KAVIR_TRAP_EXIT_CODE;
+    }
     /* mirror OS exit-code truncation so harness comparisons are exact */
-    return (int)(v & 0xff);
+    return (int)(r.value & 0xff);
 }
 
 static int cmd_dump_ir(const char *in_path) {
