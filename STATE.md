@@ -39,6 +39,18 @@ Summary of last session:
   ~9-15k (codegen 3-5k, ELF 0.5-1k, kavirrt 0.3-0.6k, frontend 4-6k,
   tooling 1-2k), ladder M1..M7, scope = M6 minus ADR-003/004 cuts.
   AWAITING USER APPROVAL; on approval M1 starts Phase 3.
+- ADR-006 platform roadmap ACCEPTED (user-directed): long-term goal = all
+  platforms; order T2 Linux ARM64 -> T3 Wasm/WASI -> T4 Windows x64 ->
+  T5 macOS ARM64 with per-target cost/risk; additivity audit lists every
+  x86-64/Linux coupling (syscalls, ELF, encoder, SysV ABI, 8-byte layout,
+  CI runner, brk) with isolation plans (sys_<target>/abi_<target>/
+  emit_<format>/backend_<arch> modules + Target descriptor); discipline
+  rule: target constants only inside per-target modules from v0.1.x, no
+  speculative abstractions before T2; Wasm second (cheapest verification,
+  preserves freestanding posture, real test of ADR-002's second-backend
+  promise; C-426 hypothesis cited, re-evaluate at T3). README gained a
+  Supported platforms section (WSL2/VM/container guidance for Windows/
+  macOS users). v0.1.0 scope UNCHANGED.
 - User also confirmed: compiler bootstrap in C17+gcc accepted with the
   binding condition that compiled-program output NEVER passes cc.
 - check_evidence.py normal + --gate: 0 errors (3 known warnings).
@@ -73,7 +85,9 @@ Next three steps:
 3. Phase 3 M1 walking skeleton per ADR-005 v2: kavir compiler in C17 →
    Kavir IR → own x86-64 encoder → internal ELF writer + kavirrt
    (_start + direct syscalls); milestone ladder M1..M7; conformance
-   suite + fuzz targets from day one.
+   suite + fuzz targets from day one; from day one also obey the
+   ADR-006 discipline rule (all x86-64/Linux constants confined to
+   targets/x86_64_linux.c by M7).
 
 GitHub: private repo obsifox/kavir (remote origin). Token handled via env var only,
 never stored in tracked files; not revoked or deleted (user instruction).

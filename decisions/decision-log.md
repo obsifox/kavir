@@ -29,6 +29,12 @@ One line per ADR: number, title, status, date. Superseded decisions stay listed.
   skeleton with a cost estimate for the custom backend.
 - 2026-10-26: ADR-005 v2 (walking skeleton M1..M7, LOC estimate ~9-15k,
   scope = M6 minus ADR-003/004 cuts) — PROPOSED, awaiting user approval.
+- 2026-10-26: ADR-006 platform roadmap (T2 Linux ARM64 -> T3 Wasm/WASI ->
+  T4 Windows x64 -> T5 macOS ARM64; cost/risk per target; additive-
+  architecture audit + per-target-module discipline rule; Wasm placed
+  second with rationale; v0.1.0 scope unchanged) — ACCEPTED (user-directed
+  planning ADR; ordering delegated to coordinator; each target activation
+  is a separate future decision).
 
 ## User decisions (recorded in chat, not ADRs)
 
