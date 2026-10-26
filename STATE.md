@@ -1,4 +1,4 @@
-phase: 2 (design ADRs; pre-ADR experiments first)
+phase: 3 (M1 walking skeleton COMPLETE; M2 next)
 gate: passed (user approved 2026-10-26, chat reply "قبوله")
 last_session: 2026-10-26
 covered_workstreams: [W1, W2, W3, W4, W5, W6, W7, W8]
@@ -53,6 +53,20 @@ Summary of last session:
   macOS users). v0.1.0 scope UNCHANGED.
 - User also confirmed: compiler bootstrap in C17+gcc accepted with the
   binding condition that compiled-program output NEVER passes cc.
+- ADR-005 v3 ACCEPTED with user amendments: (a) calibration checkpoint at
+  M3; (b) IR interpreter as correctness reference from M1 + frontend fuzz
+  under ASan+UBSan (estimate raised to ~10-16k LOC); (c) m5cut contingency
+  defined in advance (objective trigger + forbidden README claims); (d)
+  README single-platform statement done. M1 authorized to start
+  immediately without re-approval (stop only for NEW irreversible
+  decisions).
+- M1 COMPLETE (same session): compiler/ — C17 pipeline lexer→parser→
+  checker→IR→own x86-64 encoder→internal static ELF; `return 42` runs
+  end-to-end: 145-byte ELF exits 42; readelf-verified; interpreter
+  cross-check green (elf=42 interp=42); 3 negative tests with span
+  diagnostics; IR dump; 300-iteration sanitizer fuzz: 0 problems.
+  1271 LOC total. No new irreversible decisions (see
+  reports/milestones/M1.md). First push of real compiler code.
 - check_evidence.py normal + --gate: 0 errors (3 known warnings).
 - Compiler implementation language: C17 (sandbox has gcc only). Boundary per
   ADR-002 v2: no-cc applies to compiled Kavir programs; the compiler itself
@@ -74,20 +88,18 @@ be third-party (LLVM/Cranelift/QBE); ADR-002 v2 bans third-party backends
 in the shipped v0.x path only.
 
 Next three steps:
-1. USER approval of ADR-005 v2 (walking skeleton) — on approval, Phase 3
-   starts with M1 immediately.
+1. M2 Output + arithmetic per ADR-005 v3: string literals, u64->decimal
+   print via write(2), integer arithmetic (+ - * / %), if/else; ELF and
+   interpreter must agree on stdout too; RW PT_LOAD data segment arrives.
 2. Remaining ADRs (not one-way doors, Claude's call with evidence): error
    handling (Result+match, no exceptions; Result in v0.1.0 only if the
-   ADR-005 v2 budget allows, else v0.2), concurrency (postpone past
+   ADR-005 v3 budget allows, else v0.2), concurrency (postpone past
    v0.1.0), modules/build/versioning (lockfile+checksums), FFI/ABI (MUST
    define a no-libc freestanding interop story per ADR-002 v2), surface
    syntax (last, cheapest).
-3. Phase 3 M1 walking skeleton per ADR-005 v2: kavir compiler in C17 →
-   Kavir IR → own x86-64 encoder → internal ELF writer + kavirrt
-   (_start + direct syscalls); milestone ladder M1..M7; conformance
-   suite + fuzz targets from day one; from day one also obey the
-   ADR-006 discipline rule (all x86-64/Linux constants confined to
-   targets/x86_64_linux.c by M7).
+3. M3 Flow + calls, then the CALIBRATION CHECKPOINT (ADR-005 v3 (a)+(c)):
+   compare actual LOC/sessions/time vs estimate; review scope; evaluate
+   m5cut trigger.
 
 GitHub: private repo obsifox/kavir (remote origin). Token handled via env var only,
 never stored in tracked files; not revoked or deleted (user instruction).
