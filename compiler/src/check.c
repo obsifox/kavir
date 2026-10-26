@@ -1,18 +1,26 @@
-/* check.c — Kavir semantic checker (M2 subset).
+/* check.c — Kavir semantic checker (M3 subset).
  *
- * M2 rules:
- *   - exactly one function named 'main' must exist, returning i32, with
- *     a non-empty body whose last statement is 'return' (M1 rule kept);
- *   - 'return' is only allowed as that last top-level statement —
- *     returning from inside an 'if' is a compile error in M2;
+ * M3 rules (ADR-010 decisions 1-9):
+ *   - every function returns i32; function names unique;
+ *   - exactly one 'main' must exist (its position is free; it may have
+ *     any body, including an empty one — falling off the end returns 0,
+ *     a documented M2 semantics both backends already implement);
+ *   - 'return' is allowed ANYWHERE a statement is allowed (this relaxes
+ *     the M2 rule; early returns inside if/while work — ADR-010);
+ *   - flat per-function variable scope: params first, then lets in
+ *     declaration order; NO shadowing anywhere in the function;
+ *   - 'let x: i32 = e;' is immutable; 'let mut x: i32 = e;' is
+ *     mutable (USER DECISION 2026-10-26, ADR-005 v3 wording);
+ *     parameters are immutable; assignment 'x = e;' is a statement
+ *     (not an expression) and only targets mutable locals;
+ *   - calls resolve against ALL function signatures (collected in a
+ *     first pass), so forward references and mutual recursion work;
+ *     arity must match exactly;
  *   - integer literals must fit i32 (ADR-007); the single exception is
- *     the numeral 2147483648 DIRECTLY under unary '-', which defines
- *     INT32_MIN (ADR-008 decision 1);
- *   - print/if statements are checked recursively into nested blocks;
- *   - function names must be unique.
+ *     the numeral 2147483648 DIRECTLY under unary '-' (ADR-008);
+ *   - comparisons yield i32 1/0 and are parsed non-associatively.
  *
- * Arithmetic is NOT evaluated or folded here (ADR-008 decision 2): it
- * executes at runtime and traps per ADR-007.
+ * Arithmetic is NOT evaluated or folded here (ADR-008 decision 2).
  */
 #include "kavir.h"
 #include <string.h>
@@ -21,9 +29,60 @@
 
 #define KAVIR_INT32_MIN_AS_ULL 2147483648ULL /* = (unsigned)INT32_MIN */
 
-/* Checks an expression node (recursively). Everything is i32 by
- * construction; this validates literal ranges. */
-static int expr_check(const char *file, const Program *prog, int eidx) {
+/* Flat per-function variable scope. Index in vars[] == the variable's
+ * vreg index (params first, then lets in declaration order) — ir.c
+ * rebuilds the same mapping independently. */
+typedef struct {
+    char name[KAVIR_MAX_NAME];
+    int is_param;
+    int is_mut;
+} Var;
+
+typedef struct {
+    Var vars[KAVIR_MAX_VARS];
+    int nvars;
+    int nparams;
+} Scope;
+
+static int scope_find(const Scope *sc, const char *name) {
+    int i;
+    for (i = 0; i < sc->nvars; i++)
+        if (strcmp(sc->vars[i].name, name) == 0) return i;
+    return -1;
+}
+
+static int scope_add(const char *file, Scope *sc, const char *name,
+                     int is_param, int is_mut, int line, int col) {
+    if (sc->nvars >= KAVIR_MAX_VARS) {
+        kavir_error(file, line, col,
+                    "too many variables (limit %d params + lets per "
+                    "function)", KAVIR_MAX_VARS);
+        return -1;
+    }
+    if (scope_find(sc, name) >= 0) {
+        kavir_error(file, line, col,
+                    "duplicate variable '%s' (no shadowing in the same "
+                    "function)", name);
+        return -1;
+    }
+    strncpy(sc->vars[sc->nvars].name, name, KAVIR_MAX_NAME - 1);
+    sc->vars[sc->nvars].name[KAVIR_MAX_NAME - 1] = '\0';
+    sc->vars[sc->nvars].is_param = is_param;
+    sc->vars[sc->nvars].is_mut = is_mut;
+    sc->nvars++;
+    return 0;
+}
+
+static int find_fn(const Program *prog, const char *name) {
+    int i;
+    for (i = 0; i < prog->nfns; i++)
+        if (strcmp(prog->fns[i].name, name) == 0) return i;
+    return -1;
+}
+
+/* Checks an expression node (recursively). Everything is i32. */
+static int expr_check(const char *file, const Program *prog, int eidx,
+                      Scope *sc) {
     const Expr *e;
 
     if (eidx < 0 || eidx >= prog->nexprs) {
@@ -64,9 +123,34 @@ static int expr_check(const char *file, const Program *prog, int eidx) {
             }
         }
         return 0;
+    case EX_IDENT:
+        if (scope_find(sc, e->name) < 0) {
+            kavir_error(file, e->line, e->col,
+                        "undeclared variable '%s'", e->name);
+            return -1;
+        }
+        return 0;
+    case EX_CALL: {
+        int fi = find_fn(prog, e->name);
+        int k;
+        if (fi < 0) {
+            kavir_error(file, e->line, e->col,
+                        "call to undefined function '%s'", e->name);
+            return -1;
+        }
+        if (e->nargs != prog->fns[fi].nparams) {
+            kavir_error(file, e->line, e->col,
+                        "function '%s' expects %d argument(s), got %d",
+                        e->name, prog->fns[fi].nparams, e->nargs);
+            return -1;
+        }
+        for (k = 0; k < e->nargs; k++)
+            if (expr_check(file, prog, e->args[k], sc) != 0) return -1;
+        return 0;
+    }
     case EX_BIN:
-        if (expr_check(file, prog, e->a) != 0) return -1;
-        if (expr_check(file, prog, e->b) != 0) return -1;
+        if (expr_check(file, prog, e->a, sc) != 0) return -1;
+        if (expr_check(file, prog, e->b, sc) != 0) return -1;
         return 0;
     }
     kavir_error(file, e->line, e->col, "internal: unknown expression kind");
@@ -74,51 +158,80 @@ static int expr_check(const char *file, const Program *prog, int eidx) {
 }
 
 static int stmt_check(const char *file, const Program *prog,
-                      const Stmt *st, int in_if_block) {
+                      const Stmt *st, Scope *sc) {
     switch (st->kind) {
     case ST_RETURN:
-        if (in_if_block) {
-            kavir_error(file, st->line, st->col,
-                        "'return' inside an 'if' block is not supported in "
-                        "M2 (functions get real control flow in M3)");
-            return -1;
-        }
-        if (expr_check(file, prog, st->expr_idx) != 0) return -1;
-        return 0;
+        return expr_check(file, prog, st->expr_idx, sc);
     case ST_PRINT:
-        return expr_check(file, prog, st->expr_idx);
+        return expr_check(file, prog, st->expr_idx, sc);
     case ST_PRINT_STR:
         return 0; /* literal already validated by the lexer */
-    case ST_IF:
-        if (expr_check(file, prog, st->expr_idx) != 0) return -1;
-        {
-            const Block *b = &prog->blocks[st->then_block];
-            int s;
-            for (s = 0; s < b->nstmts; s++)
-                if (stmt_check(file, prog, &b->stmts[s], 1) != 0) return -1;
+    case ST_LET:
+        /* the initializer runs BEFORE the binding exists: referencing
+         * the new name inside it is use-before-declaration */
+        if (expr_check(file, prog, st->expr_idx, sc) != 0) return -1;
+        return scope_add(file, sc, st->name, 0, st->is_mut,
+                         st->line, st->col);
+    case ST_ASSIGN: {
+        int vi = scope_find(sc, st->name);
+        if (vi < 0) {
+            kavir_error(file, st->line, st->col,
+                        "undeclared variable '%s'", st->name);
+            return -1;
         }
+        if (sc->vars[vi].is_param) {
+            kavir_error(file, st->line, st->col,
+                        "cannot assign to parameter '%s' (parameters are "
+                        "immutable)", st->name);
+            return -1;
+        }
+        if (!sc->vars[vi].is_mut) {
+            kavir_error(file, st->line, st->col,
+                        "cannot assign to immutable variable '%s' "
+                        "(declare it with 'let mut')", st->name);
+            return -1;
+        }
+        return expr_check(file, prog, st->expr_idx, sc);
+    }
+    case ST_IF: {
+        const Block *b;
+        int s;
+        if (expr_check(file, prog, st->expr_idx, sc) != 0) return -1;
+        b = &prog->blocks[st->then_block];
+        for (s = 0; s < b->nstmts; s++)
+            if (stmt_check(file, prog, &b->stmts[s], sc) != 0) return -1;
         if (st->else_block >= 0) {
-            const Block *b = &prog->blocks[st->else_block];
-            int s;
+            b = &prog->blocks[st->else_block];
             for (s = 0; s < b->nstmts; s++)
-                if (stmt_check(file, prog, &b->stmts[s], 1) != 0) return -1;
+                if (stmt_check(file, prog, &b->stmts[s], sc) != 0)
+                    return -1;
         }
         return 0;
+    }
+    case ST_WHILE: {
+        const Block *b = &prog->blocks[st->body_block];
+        int s;
+        if (expr_check(file, prog, st->expr_idx, sc) != 0) return -1;
+        for (s = 0; s < b->nstmts; s++)
+            if (stmt_check(file, prog, &b->stmts[s], sc) != 0) return -1;
+        return 0;
+    }
     }
     kavir_error(file, st->line, st->col, "internal: unknown statement kind");
     return -1;
 }
 
 int check(const char *file, const Program *prog) {
-    int i, j, s;
-    const Fn *main_fn = NULL;
+    int i, j;
 
+    /* pass 1: signatures (names unique, i32 return) — collected BEFORE
+     * bodies so forward references and mutual recursion resolve */
     for (i = 0; i < prog->nfns; i++) {
         const Fn *fn = &prog->fns[i];
-        const Block *body;
+        int k;
         if (!fn->ret_is_i32) {
             kavir_error(file, fn->line, fn->col,
-                        "function '%s': M2 requires an i32 return type",
+                        "function '%s': the return type must be i32",
                         fn->name);
             return -1;
         }
@@ -129,36 +242,41 @@ int check(const char *file, const Program *prog) {
                 return -1;
             }
         }
-        body = &prog->blocks[fn->body_block];
-        for (s = 0; s < body->nstmts; s++) {
-            const Stmt *st = &body->stmts[s];
-            /* top-level statements: 'return' must be the LAST one */
-            if (stmt_check(file, prog, st, 0) != 0) return -1;
-            if (st->kind == ST_RETURN && s != body->nstmts - 1) {
-                kavir_error(file, st->line, st->col,
-                            "'return' must be the last statement of the "
-                            "function body");
-                return -1;
+        for (k = 0; k < fn->nparams; k++) {
+            int m;
+            for (m = 0; m < k; m++) {
+                if (strcmp(fn->param_names[k], fn->param_names[m]) == 0) {
+                    kavir_error(file, fn->line, fn->col,
+                                "duplicate parameter '%s' in function "
+                                "'%s'", fn->param_names[k], fn->name);
+                    return -1;
+                }
             }
         }
-        if (strcmp(fn->name, "main") == 0) main_fn = fn;
     }
-
-    if (main_fn == NULL) {
+    if (find_fn(prog, "main") < 0) {
         kavir_error(file, 1, 1,
-                    "no 'main' function found (M2 programs need "
+                    "no 'main' function found (programs need "
                     "'fn main() -> i32')");
         return -1;
     }
-    {
-        const Block *body = &prog->blocks[main_fn->body_block];
-        if (body->nstmts == 0 ||
-            body->stmts[body->nstmts - 1].kind != ST_RETURN) {
-            kavir_error(file, main_fn->line, main_fn->col,
-                        "function 'main' must end with a 'return' "
-                        "statement");
-            return -1;
+
+    /* pass 2: bodies */
+    for (i = 0; i < prog->nfns; i++) {
+        const Fn *fn = &prog->fns[i];
+        const Block *body = &prog->blocks[fn->body_block];
+        Scope sc;
+        int s;
+        memset(&sc, 0, sizeof(sc));
+        sc.nparams = fn->nparams;
+        for (s = 0; s < fn->nparams; s++) {
+            if (scope_add(file, &sc, fn->param_names[s], 1, 0,
+                          fn->line, fn->col) != 0)
+                return -1;
         }
+        for (s = 0; s < body->nstmts; s++)
+            if (stmt_check(file, prog, &body->stmts[s], &sc) != 0)
+                return -1;
     }
     return 0;
 }

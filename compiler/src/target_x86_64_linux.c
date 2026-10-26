@@ -1,4 +1,4 @@
-/* target_x86_64_linux.c — Kavir target backend (M2).
+/* target_x86_64_linux.c — Kavir target backend (M3).
  *
  * ADR-002 v2: custom backend, DIRECT x86-64 machine-code emission
  * through our own encoder, internal ELF writer, static ET_EXEC, no libc,
@@ -8,25 +8,44 @@
  * (opcodes, encodings, ELF fields, syscall numbers, load base, ABI
  * register choices) live in THIS file only.
  *
- * M2 lowering (ADR-008 decisions 5/6):
- *   - one stack slot per vreg at [rbp - 8*(vreg+1)]; everything spilled;
- *   - IR_CONST   -> mov dword [slot], imm32
- *   - IR_ADD/SUB -> mov eax,[lhs]; add/sub eax,[rhs]; jo <trap>
- *   - IR_MUL     -> mov eax,[lhs]; imul eax,[rhs]; jo <trap>
- *   - IR_DIV/REM -> mov eax,[lhs]; mov ecx,[rhs]; test ecx,ecx
- *                   je <div0 trap>; cmp ecx,-1; jne ok;
- *                   cmp eax,0x80000000; je <overflow trap>; ok: cdq;
- *                   idiv ecx (quotient eax / remainder edx)
- *   - IR_PRINT   -> mov edi,[vreg]; call kavirrt_print_i32
- *   - IR_PRINT_STR -> write(1, str, len) via syscall
+ * Calling convention (ADR-010, user decision 2026-10-26): System V
+ * AMD64 integer subset — first 6 integer arguments in RDI, RSI, RDX,
+ * RCX, R8, R9; arguments 7+ on the caller stack (arg 7 at [rsp+0] /
+ * [rbp+16] after the frame is built, right-to-left standard layout);
+ * return value in EAX; RBP frame pointer; 16-byte stack alignment at
+ * every call site; callee-saved registers (RBX, R12-R15) are simply
+ * never allocated by this backend, so no save/restore code exists.
+ *
+ * Recursion depth (ADR-010 section 3b, user decision): a hidden depth
+ * value travels in R11D (a caller-saved scratch register this backend
+ * never uses for values). _start enters main with depth 0; every call
+ * site loads its own depth, increments, and calls; every prologue
+ * traps when the incoming depth would be KAVIR_MAX_CALL_DEPTH. The
+ * interpreter enforces the identical rule with identical trap bytes.
+ *
+ * M3 lowering:
+ *   - one stack slot per vreg at [rbp - 8*(vreg+1)] plus one depth
+ *     slot at [rbp - 8*(nregs+1)]; everything spilled;
+ *   - IR_CONST      -> mov dword [slot], imm32
+ *   - IR_ADD/SUB    -> mov eax,[lhs]; add/sub eax,[rhs]; jo <trap>
+ *   - IR_MUL        -> mov eax,[lhs]; imul eax,[rhs]; jo <trap>
+ *   - IR_DIV/REM    -> mov eax,[lhs]; mov ecx,[rhs]; test/je/cmp guards
+ *                      then cdq; idiv ecx (quotient eax / remainder edx)
+ *   - IR_CMP        -> mov eax,[lhs]; cmp eax,[rhs]; setcc al;
+ *                      movzx eax,al; mov [dest],eax
+ *   - IR_COPY       -> mov eax,[src]; mov [dest],eax
+ *   - IR_CALL       -> [stack args: sub rsp, mov [rsp+off],eax ...]
+ *                      mov rdi/rsi/rdx/rcx/r8d/r9d,[argslots];
+ *                      mov r11d,[depth]; inc r11d; call fn;
+ *                      [add rsp]; mov [dest],eax
+ *   - IR_PRINT      -> mov edi,[vreg]; call kavirrt_print_i32
+ *   - IR_PRINT_STR  -> write(1, str, len) via syscall
  *   - IR_JMP/JMPZ   -> jmp/je rel32 to the target instruction
- *   - IR_RET     -> mov eax,[slot]; leave; ret
- *   - trap stubs: cold pool after main; each write(2, preformatted
- *     message) then jmp trap_exit -> exit_group(101) (ADR-008 decision 3)
- *   - kavirrt_print_i32 emitted INTO the binary: sign-extend to 64 bit,
- *     negate safely there, repeated div-by-10, one write(1, ...)
- *   - image: ELF headers | code | cold stubs | trap_exit | runtime |
- *     _start | rodata — ONE R+X PT_LOAD, vaddr = base + file offset
+ *   - IR_RET        -> mov eax,[slot]; leave; ret
+ *   - trap stubs: cold pool after all functions; each write(2,
+ *     preformatted message) then jmp trap_exit -> exit_group(101)
+ *   - image: ELF headers | functions | cold stubs | trap_exit | runtime
+ *     | _start | rodata — ONE R+X PT_LOAD, vaddr = base + file offset
  */
 #include "kavir.h"
 #include <string.h>
@@ -38,6 +57,11 @@
 #define LIN_LOAD_BASE 0x400000UL      /* static ET_EXEC base vaddr */
 #define LIN_FD_STDOUT 1L
 #define LIN_FD_STDERR 2L
+
+/* SysV integer argument registers, in order (ADR-010): RDI RSI RDX RCX
+ * R8 R9 — encoded inline in emit_load_arg_reg/emit_store_arg_reg below
+ * (store = opcode 89, load = opcode 8B; r8d/r9d need REX.R = 0x44;
+ * ModRM reg fields: edi=7 esi=6 edx=2 ecx=1 r8d=0 r9d=1). */
 
 /* ---- ELF64 constants (this file only, per ADR-006) ---- */
 #define ELF_MAGIC0 0x7f
@@ -67,16 +91,24 @@
 #define KAVIR_MAX_ABS 4096
 #define KAVIR_MAX_STUBS 1024
 
-/* label ids: 0..7 fixed, 8.. ad-hoc (trap stubs, div skip), then
- * LBL_IR_BASE + instruction index for IR branch targets. */
+/* label ids: 0..7 fixed, 8..1031 trap stubs (incl. depth stubs), then
+ * ad-hoc div-skip labels, then LBL_IR_BASE + fn_idx*KAVIR_MAX_INSTS +
+ * instruction index (PER FUNCTION: one function's code generation must
+ * not see another function's label positions), then LBL_FN_BASE +
+ * function index. */
 #define LBL_TRAP_EXIT 0
 #define LBL_RT 1
 #define LBL_RT_CONVERT 2
 #define LBL_RT_OUT 3
-#define LBL_MAIN 4
 #define LBL_ADHOC_BASE 8
 #define LBL_IR_BASE 8192
-#define KAVIR_MAX_LBL (LBL_IR_BASE + KAVIR_MAX_INSTS)
+#define LBL_FN_BASE (LBL_IR_BASE + KAVIR_MAX_FNS * KAVIR_MAX_INSTS)
+#define KAVIR_MAX_LBL (LBL_FN_BASE + KAVIR_MAX_FNS)
+
+/* per-function IR branch label */
+static int ir_label(int fn_idx, int inst_idx) {
+    return LBL_IR_BASE + fn_idx * KAVIR_MAX_INSTS + inst_idx;
+}
 
 /* ---- tiny emitter ---- */
 
@@ -156,6 +188,9 @@ typedef struct { int at; int label; } Fixup;
 static Fixup g_fix[KAVIR_MAX_FIXUPS];
 static int g_nfix;
 static int g_lbl_pos[KAVIR_MAX_LBL];
+/* ad-hoc labels (div-skip) are GLOBAL across functions: a per-function
+ * counter would collide when patching forward references at the end */
+static int g_nadhoc;
 
 static void fix_rel32(Emit *e, int at, int label) {
     if (g_lbl_pos[label] >= 0) {
@@ -185,8 +220,9 @@ static void fix_abs32(Emit *e, int at, int rot) {
 }
 
 /* ---- x86-64 encoders (this file only, per ADR-006) ----
- * Registers used: eax=0 ecx=1 edx=2 esi=6 edi=7.
- * [rbp+disp32] ModRM: mod=10 rm=101 -> 0x85 | (reg << 3). */
+ * Registers used for values: eax=0 ecx=1 edx=2 esi=6 edi=7.
+ * Hidden depth travels in r11d. [rbp+disp32] ModRM: mod=10 rm=101 ->
+ * 0x85 | (reg << 3). */
 
 static void emit_mov_eax_imm32(Emit *e, long long v) { put8(e, 0xB8); put32(e, (unsigned long)(v & 0xffffffffUL)); }
 static void emit_mov_ecx_imm32(Emit *e, long long v) { put8(e, 0xB9); put32(e, (unsigned long)(v & 0xffffffffUL)); }
@@ -196,6 +232,7 @@ static void emit_mov_edi_imm32(Emit *e, long long v) { put8(e, 0xBF); put32(e, (
 static void emit_mov_edi_eax(Emit *e) { put8(e, 0x89); put8(e, 0xC7); }
 static void emit_xor_eax_eax(Emit *e) { put8(e, 0x31); put8(e, 0xC0); }
 static void emit_xor_edx_edx(Emit *e) { put8(e, 0x31); put8(e, 0xD2); }
+static void emit_xor_r11d_r11d(Emit *e) { put8(e, 0x45); put8(e, 0x31); put8(e, 0xDB); }
 static void emit_push_rbp(Emit *e) { put8(e, 0x55); }
 static void emit_mov_rbp_rsp(Emit *e) { put8(e, 0x48); put8(e, 0x89); put8(e, 0xE5); }
 static void emit_leave(Emit *e) { put8(e, 0xC9); }
@@ -209,6 +246,39 @@ static void emit_test_edi_edi(Emit *e) { put8(e, 0x85); put8(e, 0xFF); }
 static void emit_cmp_ecx_m1(Emit *e)   { put8(e, 0x83); put8(e, 0xF9); put8(e, 0xFF); }
 static void emit_cmp_eax_imm32(Emit *e, long long v) { put8(e, 0x3D); put32(e, (unsigned long)(v & 0xffffffffUL)); }
 
+/* depth plumbing: cmp r11d, imm32 / inc r11d / mov r11d <-> [rbp+disp32] */
+static void emit_cmp_r11d_imm32(Emit *e, long long v) {
+    put8(e, 0x41); put8(e, 0x81); put8(e, 0xFB);
+    put32(e, (unsigned long)(v & 0xffffffffUL));
+}
+static void emit_inc_r11d(Emit *e) { put8(e, 0x41); put8(e, 0xFF); put8(e, 0xC3); }
+static void emit_mov_r11d_m(Emit *e, int disp) {
+    put8(e, 0x44); put8(e, 0x8B); put8(e, 0x9D);
+    put32(e, (unsigned long)((unsigned)disp & 0xffffffffUL));
+}
+static void emit_mov_m_r11d(Emit *e, int disp) {
+    put8(e, 0x44); put8(e, 0x89); put8(e, 0x9D);
+    put32(e, (unsigned long)((unsigned)disp & 0xffffffffUL));
+}
+
+/* r8d/r9d loads/stores through [rbp+disp32] (REX.R forms) */
+static void emit_mov_r8d_m(Emit *e, int disp) {
+    put8(e, 0x44); put8(e, 0x8B); put8(e, 0x85);
+    put32(e, (unsigned long)((unsigned)disp & 0xffffffffUL));
+}
+static void emit_mov_r9d_m(Emit *e, int disp) {
+    put8(e, 0x44); put8(e, 0x8B); put8(e, 0x8D);
+    put32(e, (unsigned long)((unsigned)disp & 0xffffffffUL));
+}
+static void emit_mov_m_r8d(Emit *e, int disp) {
+    put8(e, 0x44); put8(e, 0x89); put8(e, 0x85);
+    put32(e, (unsigned long)((unsigned)disp & 0xffffffffUL));
+}
+static void emit_mov_m_r9d(Emit *e, int disp) {
+    put8(e, 0x44); put8(e, 0x89); put8(e, 0x8D);
+    put32(e, (unsigned long)((unsigned)disp & 0xffffffffUL));
+}
+
 static void emit_sub_rsp_imm(Emit *e, int imm) {
     if (imm >= -128 && imm <= 127) {
         put8(e, 0x48); put8(e, 0x83); put8(e, 0xEC); put8(e, (unsigned)imm);
@@ -218,14 +288,23 @@ static void emit_sub_rsp_imm(Emit *e, int imm) {
     }
 }
 
-/* mov r32, [rbp+disp32] — reg: 0=eax 1=ecx 7=edi */
+static void emit_add_rsp_imm(Emit *e, int imm) {
+    if (imm >= -128 && imm <= 127) {
+        put8(e, 0x48); put8(e, 0x83); put8(e, 0xC4); put8(e, (unsigned)imm);
+    } else {
+        put8(e, 0x48); put8(e, 0x81); put8(e, 0xC4);
+        put32(e, (unsigned long)((unsigned)imm & 0xffffffffUL));
+    }
+}
+
+/* mov r32, [rbp+disp32] — reg: 0=eax 1=ecx 2=edx 6=esi 7=edi */
 static void emit_mov_r_m(Emit *e, int reg, int disp) {
     put8(e, 0x8B);
     put8(e, (unsigned)(0x85 | (reg << 3)));
     put32(e, (unsigned long)((unsigned)disp & 0xffffffffUL));
 }
 
-/* mov [rbp+disp32], r32 — reg: 0=eax 1=ecx 2=edx */
+/* mov [rbp+disp32], r32 — reg: 0=eax 1=ecx 2=edx 6=esi 7=edi */
 static void emit_mov_m_r(Emit *e, int disp, int reg) {
     put8(e, 0x89);
     put8(e, (unsigned)(0x85 | (reg << 3)));
@@ -243,6 +322,25 @@ static void emit_mov_m_imm32(Emit *e, int disp, long long imm) {
 static void emit_add_eax_m(Emit *e, int disp)  { put8(e, 0x03); put8(e, 0x85); put32(e, (unsigned long)((unsigned)disp & 0xffffffffUL)); }
 static void emit_sub_eax_m(Emit *e, int disp)  { put8(e, 0x2B); put8(e, 0x85); put32(e, (unsigned long)((unsigned)disp & 0xffffffffUL)); }
 static void emit_imul_eax_m(Emit *e, int disp) { put8(e, 0x0F); put8(e, 0xAF); put8(e, 0x85); put32(e, (unsigned long)((unsigned)disp & 0xffffffffUL)); }
+static void emit_cmp_eax_m(Emit *e, int disp)  { put8(e, 0x3B); put8(e, 0x85); put32(e, (unsigned long)((unsigned)disp & 0xffffffffUL)); }
+
+/* setcc al / movzx eax,al — comparison results (ADR-010 decision 2) */
+static void emit_setcc_al(Emit *e, int cc) {
+    put8(e, 0x0F);
+    put8(e, (unsigned)cc);
+    put8(e, 0xC0);
+}
+static void emit_movzx_eax_al(Emit *e) { put8(e, 0x0F); put8(e, 0xB6); put8(e, 0xC0); }
+
+/* store a stack argument: mov [rsp+off], eax (off is 0 or 8 in practice) */
+static void emit_mov_rsp_eax(Emit *e, int off) {
+    if (off == 0) {
+        put8(e, 0x89); put8(e, 0x04); put8(e, 0x24);
+    } else {
+        put8(e, 0x89); put8(e, 0x44); put8(e, 0x24);
+        put8(e, (unsigned)off);
+    }
+}
 
 /* 64-bit helpers for the emitted runtime (digit conversion) */
 static void emit_movsxd_rax_edi(Emit *e) { put8(e, 0x48); put8(e, 0x63); put8(e, 0xC7); }
@@ -260,20 +358,25 @@ static void emit_add_rdx_40(Emit *e)     { put8(e, 0x48); put8(e, 0x83); put8(e,
 static void emit_sub_rdx_rsi(Emit *e)    { put8(e, 0x48); put8(e, 0x29); put8(e, 0xF2); }
 static void emit_add_rsp_48(Emit *e)     { put8(e, 0x48); put8(e, 0x83); put8(e, 0xC4); put8(e, 0x30); }
 
-/* jcc rel32 into a (possibly forward) label */
-#define CC_O  0  /* 0F 80 jo   */
-#define CC_E  4  /* 0F 84 je   */
-#define CC_NE 5  /* 0F 85 jne  */
-#define CC_NS 9  /* 0F 89 jns  */
+/* jcc rel32 into a (possibly forward) label — emit_jcc takes the SECOND
+ * opcode byte directly (0x80+jcc code on the wire): */
 
-static void emit_jcc(Emit *e, int cc, int label) {
+static void emit_jcc(Emit *e, int opcode_low, int label) {
+    /* opcode_low is the SECOND opcode byte (0x83 = jae, 0x84 = je, ...) */
     int at;
     put8(e, 0x0F);
-    put8(e, (unsigned)(0x80 + cc));
+    put8(e, (unsigned)opcode_low);
     at = e->size;
     put32(e, 0);        /* reserve the rel32 first so patches are in range */
     fix_rel32(e, at, label);
 }
+
+/* named condition-code opcodes used in this file (0x0F + byte) */
+#define JCC_O   0x80
+#define JCC_AE  0x83
+#define JCC_E   0x84
+#define JCC_NE  0x85
+#define JCC_NS  0x89
 
 static void emit_jmp(Emit *e, int label) {
     int at;
@@ -302,7 +405,7 @@ static void emit_print_i32_runtime(Emit *e) {
     emit_lea_r9_rsp40(e);               /* r9 = digits end pointer        */
     emit_mov_ecx_imm32(e, 10);          /* divisor                        */
     emit_test_edi_edi(e);
-    emit_jcc(e, CC_NS, LBL_RT_CONVERT); /* positive: skip the negate      */
+    emit_jcc(e, JCC_NS, LBL_RT_CONVERT); /* positive: skip the negate     */
     emit_neg_rax(e);                    /* 64-bit neg: safe for INT32_MIN */
     place_lbl_at(e, LBL_RT_CONVERT);
     /* digit loop (runs at least once, so 0 prints as "0") */
@@ -312,9 +415,9 @@ static void emit_print_i32_runtime(Emit *e) {
     emit_dec_r9(e);
     emit_mov_r9_dl(e);
     emit_test_rax_rax(e);
-    emit_jcc(e, CC_NE, LBL_RT_CONVERT); /* backward, already placed       */
+    emit_jcc(e, JCC_NE, LBL_RT_CONVERT); /* backward, already placed      */
     emit_test_edi_edi(e);
-    emit_jcc(e, CC_NS, LBL_RT_OUT);
+    emit_jcc(e, JCC_NS, LBL_RT_OUT);
     emit_dec_r9(e);
     emit_mov_r9_dash(e);                /* leading '-'                    */
     place_lbl_at(e, LBL_RT_OUT);
@@ -339,12 +442,9 @@ typedef struct {
 static TrapStub g_stubs[KAVIR_MAX_STUBS];
 static int g_nstubs;
 
-static int add_overflow_stub(Emit *e, const char *file, int line, int col) {
-    char msg[256];
-    int ml, rot, lbl;
-    ml = snprintf(msg, sizeof(msg),
-                  "trap: integer overflow at %s:%d:%d\n", file, line, col);
-    rot = rot_add(msg, ml);
+static int add_trap_stub(Emit *e, const char *msg, int len) {
+    int rot, lbl;
+    rot = rot_add(msg, len);
     if (rot < 0) { emit_fail(e, "too many trap sites"); return -1; }
     if (g_nstubs >= KAVIR_MAX_STUBS) {
         emit_fail(e, "too many trap sites");
@@ -357,27 +457,118 @@ static int add_overflow_stub(Emit *e, const char *file, int line, int col) {
     return lbl;
 }
 
-static int gen_function(Emit *e, const char *file, const IrModule *mod,
-                        const IrFn *fn) {
-    int k, nregs = 0, slots;
-    int adhoc = LBL_ADHOC_BASE + KAVIR_MAX_STUBS; /* stubs take 8..1031 */
+/* one depth stub per FUNCTION; its message names the callee whose
+ * prologue rejected the entry (identical bytes in the interpreter) */
+static int add_depth_stub(Emit *e, const char *file, const IrFn *fn) {
+    char msg[256];
+    int ml;
+    ml = snprintf(msg, sizeof(msg),
+                  "trap: call depth limit exceeded (%d) in fn '%s' "
+                  "at %s:%d:%d\n", KAVIR_MAX_CALL_DEPTH, fn->name,
+                  file, fn->line, fn->col);
+    return add_trap_stub(e, msg, ml);
+}
 
-    /* pass 1: vreg count (dest is written by CONST and arithmetic only) */
+static int add_overflow_stub(Emit *e, const char *file, int line, int col) {
+    char msg[256];
+    int ml;
+    ml = snprintf(msg, sizeof(msg),
+                  "trap: integer overflow at %s:%d:%d\n", file, line, col);
+    return add_trap_stub(e, msg, ml);
+}
+
+static int add_divzero_stub(Emit *e, const char *file, int line, int col) {
+    char msg[256];
+    int ml;
+    ml = snprintf(msg, sizeof(msg),
+                  "trap: division by zero at %s:%d:%d\n", file, line, col);
+    return add_trap_stub(e, msg, ml);
+}
+
+/* loads argument register i (0..5) from its vreg slot */
+static void emit_load_arg_reg(Emit *e, int i, int vreg) {
+    int disp = -8 * (vreg + 1);
+    switch (i) {
+    case 0: emit_mov_r_m(e, 7, disp); break;             /* edi */
+    case 1: emit_mov_r_m(e, 6, disp); break;             /* esi */
+    case 2: emit_mov_r_m(e, 2, disp); break;             /* edx */
+    case 3: emit_mov_r_m(e, 1, disp); break;             /* ecx */
+    case 4: emit_mov_r8d_m(e, disp); break;              /* r8d */
+    case 5: emit_mov_r9d_m(e, disp); break;              /* r9d */
+    }
+}
+
+/* stores argument register i into the callee's param vreg slot
+ * (used in the prologue) */
+static void emit_store_arg_reg(Emit *e, int i, int vreg) {
+    int disp = -8 * (vreg + 1);
+    switch (i) {
+    case 0: emit_mov_m_r(e, disp, 7); break;             /* edi */
+    case 1: emit_mov_m_r(e, disp, 6); break;             /* esi */
+    case 2: emit_mov_m_r(e, disp, 2); break;             /* edx */
+    case 3: emit_mov_m_r(e, disp, 1); break;             /* ecx */
+    case 4: emit_mov_m_r8d(e, disp); break;              /* r8d */
+    case 5: emit_mov_m_r9d(e, disp); break;              /* r9d */
+    }
+}
+
+static int cmp_setcc_byte(IrOpKind op) {
+    switch (op) {
+    case IR_LT: return 0x9C; /* setl  */
+    case IR_LE: return 0x9E; /* setle */
+    case IR_GT: return 0x9F; /* setg  */
+    case IR_GE: return 0x9D; /* setge */
+    case IR_EQ: return 0x94; /* sete  */
+    case IR_NE: return 0x95; /* setne */
+    default:    return 0;
+    }
+}
+
+static int gen_function(Emit *e, const char *file, const IrModule *mod,
+                        int fn_idx, const IrFn *fn) {
+    int k, nregs = 0, slots, depth_disp, rc_depth;
+
+    /* pass 1: vreg count (dest is written by CONST/arith/cmp/COPY/CALL) */
     for (k = 0; k < fn->ninsts; k++) {
         const IrInst *in = &fn->insts[k];
-        if (in->op == IR_CONST || (in->op >= IR_ADD && in->op <= IR_REM))
-            if (in->dest + 1 > nregs) nregs = in->dest + 1;
+        int writes = (in->op == IR_CONST) ||
+                     (in->op >= IR_ADD && in->op <= IR_REM) ||
+                     (in->op >= IR_LT && in->op <= IR_NE) ||
+                     (in->op == IR_COPY) || (in->op == IR_CALL);
+        if (writes && in->dest + 1 > nregs) nregs = in->dest + 1;
     }
-    slots = ((8 * nregs) + 15) & ~15;
+    /* +1 slot for the hidden depth value (ADR-010 section 3b) */
+    slots = ((8 * (nregs + 1)) + 15) & ~15;
+    depth_disp = -8 * (nregs + 1);
+
+    /* prologue: depth check first, then frame + depth spill + args.
+     * Trap when the INCOMING depth is >= KAVIR_MAX_CALL_DEPTH (frame
+     * indices 0..KAVIR_MAX_CALL_DEPTH-1 are legal — identical rule in
+     * the interpreter and the oracle). */
+    rc_depth = add_depth_stub(e, file, fn);
+    if (rc_depth < 0) return -1;
+    emit_cmp_r11d_imm32(e, KAVIR_MAX_CALL_DEPTH);
+    emit_jcc(e, JCC_AE, rc_depth);
 
     emit_push_rbp(e);
     emit_mov_rbp_rsp(e);
     emit_sub_rsp_imm(e, slots);
+    emit_mov_m_r11d(e, depth_disp);
+
+    /* parameter copies: register args, then stack args ([rbp+16+8i]) */
+    for (k = 0; k < fn->nparams; k++) {
+        if (k < 6) {
+            emit_store_arg_reg(e, k, k);
+        } else {
+            emit_mov_r_m(e, 0, 16 + 8 * (k - 6)); /* eax = stack arg */
+            emit_mov_m_r(e, -8 * (k + 1), 0);
+        }
+    }
 
     for (k = 0; k < fn->ninsts; k++) {
         const IrInst *in = &fn->insts[k];
         /* branch target of IR inst k is the start of its machine code */
-        g_lbl_pos[LBL_IR_BASE + k] = e->size;
+        g_lbl_pos[ir_label(fn_idx, k)] = e->size;
 
         switch (in->op) {
         case IR_CONST:
@@ -392,49 +583,73 @@ static int gen_function(Emit *e, const char *file, const IrModule *mod,
             else                       emit_imul_eax_m(e, -8 * (in->src2 + 1));
             stub = add_overflow_stub(e, file, in->line, in->col);
             if (stub < 0) return -1;
-            emit_jcc(e, CC_O, stub);
+            emit_jcc(e, JCC_O, stub);
             emit_mov_m_r(e, -8 * (in->dest + 1), 0);
             break;
         }
 
         case IR_DIV: case IR_REM: {
-            char msg[256];
-            int ml, rot0, rot1, lbl0, lbl1, skip_lbl;
-            ml = snprintf(msg, sizeof(msg),
-                          "trap: division by zero at %s:%d:%d\n",
-                          file, in->line, in->col);
-            rot0 = rot_add(msg, ml);
-            ml = snprintf(msg, sizeof(msg),
-                          "trap: integer overflow at %s:%d:%d\n",
-                          file, in->line, in->col);
-            rot1 = rot_add(msg, ml);
-            if (rot0 < 0 || rot1 < 0 || g_nstubs + 2 > KAVIR_MAX_STUBS) {
-                emit_fail(e, "too many trap sites");
+            int rot0, rot1, lbl0, lbl1, skip_lbl;
+            rot0 = add_divzero_stub(e, file, in->line, in->col);
+            if (rot0 < 0) return -1;
+            lbl0 = g_stubs[g_nstubs - 1].label;
+            rot1 = add_overflow_stub(e, file, in->line, in->col);
+            if (rot1 < 0) return -1;
+            lbl1 = g_stubs[g_nstubs - 1].label;
+            if (g_nadhoc >= LBL_IR_BASE) {
+                emit_fail(e, "too many division sites");
                 return -1;
             }
-            lbl0 = adhoc++;
-            lbl1 = adhoc++;
-            skip_lbl = adhoc++;
+            skip_lbl = g_nadhoc++;
 
             emit_mov_r_m(e, 0, -8 * (in->src1 + 1));   /* eax = lhs      */
             emit_mov_r_m(e, 1, -8 * (in->src2 + 1));   /* ecx = rhs      */
             emit_test_ecx_ecx(e);
-            g_stubs[g_nstubs].label = lbl0;            /* division by 0  */
-            g_stubs[g_nstubs].rot = rot0;
-            g_nstubs++;
-            emit_jcc(e, CC_E, lbl0);
+            emit_jcc(e, JCC_E, lbl0);                  /* division by 0  */
             emit_cmp_ecx_m1(e);
-            emit_jcc(e, CC_NE, skip_lbl);
+            emit_jcc(e, JCC_NE, skip_lbl);
             emit_cmp_eax_imm32(e, (long long)0x80000000);
-            g_stubs[g_nstubs].label = lbl1;            /* INT_MIN over -1*/
-            g_stubs[g_nstubs].rot = rot1;
-            g_nstubs++;
-            emit_jcc(e, CC_E, lbl1);
+            emit_jcc(e, JCC_E, lbl1);                  /* INT_MIN over -1*/
             place_lbl_at(e, skip_lbl);
             emit_cdq(e);
             emit_idiv_ecx(e);
             if (in->op == IR_DIV) emit_mov_m_r(e, -8 * (in->dest + 1), 0);
             else emit_mov_m_r(e, -8 * (in->dest + 1), 2); /* edx = rem   */
+            break;
+        }
+
+        case IR_LT: case IR_LE: case IR_GT:
+        case IR_GE: case IR_EQ: case IR_NE:
+            emit_mov_r_m(e, 0, -8 * (in->src1 + 1));
+            emit_cmp_eax_m(e, -8 * (in->src2 + 1));
+            emit_setcc_al(e, cmp_setcc_byte(in->op));
+            emit_movzx_eax_al(e);
+            emit_mov_m_r(e, -8 * (in->dest + 1), 0);
+            break;
+
+        case IR_COPY:
+            emit_mov_r_m(e, 0, -8 * (in->src1 + 1));
+            emit_mov_m_r(e, -8 * (in->dest + 1), 0);
+            break;
+
+        case IR_CALL: {
+            int i, nstack, stack_bytes;
+            nstack = in->nargs > 6 ? in->nargs - 6 : 0;
+            stack_bytes = nstack ? (((nstack + 1) & ~1) * 8) : 0;
+            if (nstack) emit_sub_rsp_imm(e, stack_bytes);
+            /* stack args: arg i (i>=6) lives at [rsp + 8*(i-6)]; that
+             * puts arg 7 at [rsp+0] = [rbp+16] in the callee (SysV) */
+            for (i = 6; i < in->nargs; i++) {
+                emit_mov_r_m(e, 0, -8 * (in->args[i] + 1));
+                emit_mov_rsp_eax(e, 8 * (i - 6));
+            }
+            for (i = 0; i < 6 && i < in->nargs; i++)
+                emit_load_arg_reg(e, i, in->args[i]);
+            emit_mov_r11d_m(e, depth_disp);
+            emit_inc_r11d(e);
+            emit_call(e, LBL_FN_BASE + in->fn_idx);
+            if (nstack) emit_add_rsp_imm(e, stack_bytes);
+            emit_mov_m_r(e, -8 * (in->dest + 1), 0);
             break;
         }
 
@@ -453,20 +668,23 @@ static int gen_function(Emit *e, const char *file, const IrModule *mod,
             break;
 
         case IR_JMP:
-            emit_jmp(e, LBL_IR_BASE + in->target);
+            emit_jmp(e, ir_label(fn_idx, in->target));
             break;
 
         case IR_JMPZ:
             emit_mov_r_m(e, 0, -8 * (in->src1 + 1));
             emit_test_eax_eax(e);
-            emit_jcc(e, CC_E, LBL_IR_BASE + in->target);
+            emit_jcc(e, JCC_E, ir_label(fn_idx, in->target));
             break;
 
         case IR_RET:
             emit_mov_r_m(e, 0, -8 * (in->src1 + 1));
             emit_leave(e);
             emit_ret(e);
-            return 0;
+            /* keep generating: early returns are mid-function in M3;
+             * code after a RET is reachable via jumps. If the RET is
+             * the last instruction, the epilogue below is dead bytes. */
+            break;
         }
     }
     /* falling off the end: return 0 (must match interpreter semantics) */
@@ -518,7 +736,7 @@ static int write_elf(Emit *e, int start_pos, int code_end, int *entry_file_off) 
     put16(e, 0);                  /* e_shstrndx */
 
     /* --- program header: one R+X PT_LOAD covering the whole image ---
-     * (no RW segment in M2: no globals, no mutable data — ADR-008 §6) */
+     * (no RW segment yet: no globals, no mutable data — ADR-008 §6) */
     put32(e, ELF_PT_LOAD);
     put32(e, ELF_PF_R | ELF_PF_X);
     put64(e, 0);                /* p_offset */
@@ -539,10 +757,10 @@ int target_x86_64_linux_emit(const IrModule *mod, unsigned char *buf,
                              int cap, int *out_size, int *entry_file_offset,
                              char *errbuf, int errcap) {
     Emit e;
-    const IrFn *main_fn = NULL;
+    int main_idx = -1;
     const char *file;
     int i, rc, code_end = 0, start_pos = 0;
-    int rodata_start, rosize, has_arith = 0;
+    int rodata_start, rosize, has_trap_sites = 0;
 
     e.buf = buf; e.cap = cap; e.size = 0;
     e.err = errbuf; e.errcap = errcap;
@@ -550,6 +768,9 @@ int target_x86_64_linux_emit(const IrModule *mod, unsigned char *buf,
     /* reset per-emit static state (the fuzz harness emits repeatedly) */
     for (i = 0; i < KAVIR_MAX_LBL; i++) g_lbl_pos[i] = -1;
     g_nfix = 0; g_nabs = 0; g_nrots = 0; g_nstubs = 0;
+    /* ad-hoc labels live ABOVE the trap-stub range (8..1031) and below
+     * the per-function IR label space (LBL_IR_BASE..) */
+    g_nadhoc = LBL_ADHOC_BASE + KAVIR_MAX_STUBS;
 
     file = (mod->file != NULL) ? mod->file : "?";
 
@@ -560,20 +781,27 @@ int target_x86_64_linux_emit(const IrModule *mod, unsigned char *buf,
 
     for (i = 0; i < mod->nfns; i++) {
         int k;
-        if (strcmp(mod->fns[i].name, "main") == 0) main_fn = &mod->fns[i];
+        if (strcmp(mod->fns[i].name, "main") == 0) main_idx = i;
         for (k = 0; k < mod->fns[i].ninsts; k++) {
             IrOpKind op = mod->fns[i].insts[k].op;
-            if (op >= IR_ADD && op <= IR_REM) has_arith = 1;
+            if ((op >= IR_ADD && op <= IR_REM) || op == IR_CALL)
+                has_trap_sites = 1;
         }
     }
-    if (main_fn == NULL) return emit_fail(&e, "internal: no main in IR");
-    if (has_arith && strlen(file) > KAVIR_MAX_TRAP_PATH)
-        return emit_fail(&e, "input path too long for M2 trap diagnostics "
+    if (main_idx < 0) return emit_fail(&e, "internal: no main in IR");
+    if (has_trap_sites && (int)strlen(file) > KAVIR_MAX_TRAP_PATH)
+        return emit_fail(&e, "input path too long for trap diagnostics "
                              "(max 200 bytes)");
 
-    place_lbl_at(&e, LBL_MAIN);
-    rc = gen_function(&e, file, mod, main_fn);
-    if (rc != 0) return -1;
+    /* all functions, in IR order (every prologue registers its depth
+     * stub in the cold pool; arith/div stubs register inline). IR branch
+     * labels are per-function (ir_label) so generation order never
+     * leaks positions across functions. */
+    for (i = 0; i < mod->nfns; i++) {
+        place_lbl_at(&e, LBL_FN_BASE + i);
+        rc = gen_function(&e, file, mod, i, &mod->fns[i]);
+        if (rc != 0) return -1;
+    }
 
     /* cold area: trap stubs */
     for (i = 0; i < g_nstubs; i++) {
@@ -592,10 +820,11 @@ int target_x86_64_linux_emit(const IrModule *mod, unsigned char *buf,
     emit_mov_eax_imm32(&e, LIN_EXIT_GROUP_SYSCALL);
     emit_syscall(&e);
 
-    /* freestanding runtime + entry */
+    /* freestanding runtime + entry (depth 0 into main, ADR-010) */
     emit_print_i32_runtime(&e);
     start_pos = e.size;
-    emit_call(&e, LBL_MAIN);
+    emit_xor_r11d_r11d(&e);
+    emit_call(&e, LBL_FN_BASE + main_idx);
     emit_mov_edi_eax(&e);
     emit_mov_eax_imm32(&e, LIN_EXIT_GROUP_SYSCALL);
     emit_syscall(&e);

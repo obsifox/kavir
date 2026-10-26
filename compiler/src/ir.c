@@ -1,9 +1,8 @@
-/* ir.c — Kavir IR construction and text dump (M2 subset).
+/* ir.c — Kavir IR construction and text dump (M3 subset).
  *
- * M2 IR is a flat instruction list per function over virtual registers
- * (ADR-008 decision 5). The two M1 opcodes keep their exact meaning;
- * M2 adds arithmetic (trap per ADR-007), output, and jumps whose
- * targets are instruction indices patched from forward labels:
+ * M3 IR is a flat instruction list per function over virtual registers
+ * (ADR-008 decision 5; extended additively in M2 and M3 — the format is
+ * internal and never persisted). Opcodes:
  *
  *   IR_CONST    dest, imm          — materialize an i32 immediate
  *   IR_RET      src1               — return a vreg from the function
@@ -13,9 +12,17 @@
  *   IR_PRINT_STR str_idx           — print string-table bytes
  *   IR_JMP      target             — unconditional jump
  *   IR_JMPZ     src1, target       — jump when vreg == 0
+ *   IR_LT/LE/GT/GE/EQ/NE d,s1,s2   — comparison, yields 1/0 (M3)
+ *   IR_COPY     dest, src1         — vreg <- vreg (lets, assigns) (M3)
+ *   IR_CALL     dest, fn_idx, args — call, result into dest (M3)
+ *
+ * Variables map to fixed vregs: params first (0..nparams-1), then lets
+ * in declaration order — the checker guarantees every reference
+ * resolves; the builder keeps its own name table as defense in depth.
  *
  * Evaluation order is fixed by construction: left operand, then right
- * operand, then the operation (ADR-008 decision 2) — observable through
+ * operand, then the operation; call arguments left-to-right, then the
+ * call (ADR-008 decision 2; ADR-010 decision 1) — observable through
  * traps between prints.
  */
 #include "kavir.h"
@@ -27,7 +34,24 @@ typedef struct {
     int label_fix[KAVIR_MAX_LABELS * 2][2]; /* {inst index, label id} */
     int nfix;
     const char *file;
+    /* variable name -> vreg (params first 0..nparams-1, then lets in
+     * declaration order at whatever vreg numbers they claimed); the
+     * checker guarantees every lookup succeeds — this table is defense
+     * in depth and an internal-error source if violated. NOTE: the
+     * vnames[] INDEX is not the vreg number — lets allocate vregs after
+     * expression temporaries, so the mapping is explicit. */
+    char vnames[KAVIR_MAX_VARS][KAVIR_MAX_NAME];
+    int vnums[KAVIR_MAX_VARS];
+    int nvnames;
+    const Program *prog; /* callee resolution for EX_CALL */
 } IrBuild;
+
+static int find_vreg(const IrBuild *b, const char *name) {
+    int i;
+    for (i = 0; i < b->nvnames; i++)
+        if (strcmp(b->vnames[i], name) == 0) return b->vnums[i];
+    return -1;
+}
 
 static int irf_add(IrBuild *b, const IrInst *in) {
     if (b->out->ninsts >= KAVIR_MAX_INSTS) {
@@ -98,6 +122,51 @@ static int lower_expr(IrBuild *b, const Program *prog, int eidx) {
         if (irf_add(b, &in) != 0) return -1;
         return in.dest;
     }
+    case EX_IDENT: {
+        int v = find_vreg(b, e->name);
+        IrInst in;
+        if (v < 0) {
+            /* the checker guarantees this is unreachable */
+            kavir_error(b->file, e->line, e->col,
+                        "internal: unresolved variable '%s'", e->name);
+            return -1;
+        }
+        memset(&in, 0, sizeof(in));
+        in.op = IR_COPY;
+        in.dest = b->vreg++;
+        in.src1 = v;
+        in.line = e->line;
+        in.col = e->col;
+        if (irf_add(b, &in) != 0) return -1;
+        return in.dest;
+    }
+    case EX_CALL: {
+        int fi, k, dst;
+        IrInst in;
+        for (fi = 0; fi < b->prog->nfns; fi++)
+            if (strcmp(b->prog->fns[fi].name, e->name) == 0) break;
+        if (fi >= b->prog->nfns) {
+            /* the checker guarantees this is unreachable */
+            kavir_error(b->file, e->line, e->col,
+                        "internal: unresolved call to '%s'", e->name);
+            return -1;
+        }
+        memset(&in, 0, sizeof(in));
+        for (k = 0; k < e->nargs; k++) {
+            int a = lower_expr(b, prog, e->args[k]);
+            if (a < 0) return -1;
+            in.args[k] = a; /* left-to-right, before the call */
+        }
+        in.op = IR_CALL;
+        in.dest = b->vreg++;
+        in.fn_idx = fi;
+        in.nargs = e->nargs;
+        in.line = e->line;
+        in.col = e->col;
+        dst = in.dest;
+        if (irf_add(b, &in) != 0) return -1;
+        return dst;
+    }
     case EX_BIN: {
         int l = lower_expr(b, prog, e->a);
         int r, dst;
@@ -112,6 +181,12 @@ static int lower_expr(IrBuild *b, const Program *prog, int eidx) {
         case BIN_MUL: in.op = IR_MUL; break;
         case BIN_DIV: in.op = IR_DIV; break;
         case BIN_REM: in.op = IR_REM; break;
+        case BIN_LT: in.op = IR_LT; break;
+        case BIN_LE: in.op = IR_LE; break;
+        case BIN_GT: in.op = IR_GT; break;
+        case BIN_GE: in.op = IR_GE; break;
+        case BIN_EQ: in.op = IR_EQ; break;
+        case BIN_NE: in.op = IR_NE; break;
         }
         in.dest = b->vreg++;
         in.src1 = l;
@@ -165,6 +240,83 @@ static int lower_stmts(IrBuild *b, const Program *prog, const Block *blk) {
             if (irf_add(b, &in) != 0) return -1;
             break;
         }
+        case ST_LET: {
+            int v = lower_expr(b, prog, st->expr_idx);
+            IrInst in;
+            int lv;
+            if (v < 0) return -1;
+            if (b->nvnames >= KAVIR_MAX_VARS) {
+                kavir_error(b->file, st->line, st->col,
+                            "too many variables (limit %d per function)",
+                            KAVIR_MAX_VARS);
+                return -1;
+            }
+            lv = b->vreg++; /* params occupy 0..nparams-1, lets follow */
+            strncpy(b->vnames[b->nvnames], st->name, KAVIR_MAX_NAME - 1);
+            b->vnames[b->nvnames][KAVIR_MAX_NAME - 1] = '\0';
+            b->vnums[b->nvnames] = lv;
+            b->nvnames++;
+            memset(&in, 0, sizeof(in));
+            in.op = IR_COPY;
+            in.dest = lv;
+            in.src1 = v;
+            in.line = st->line;
+            in.col = st->col;
+            if (irf_add(b, &in) != 0) return -1;
+            break;
+        }
+        case ST_ASSIGN: {
+            int v = lower_expr(b, prog, st->expr_idx);
+            IrInst in;
+            int tv;
+            if (v < 0) return -1;
+            tv = find_vreg(b, st->name);
+            if (tv < 0) {
+                kavir_error(b->file, st->line, st->col,
+                            "internal: unresolved assignment target '%s'",
+                            st->name);
+                return -1;
+            }
+            memset(&in, 0, sizeof(in));
+            in.op = IR_COPY;
+            in.dest = tv;
+            in.src1 = v;
+            in.line = st->line;
+            in.col = st->col;
+            if (irf_add(b, &in) != 0) return -1;
+            break;
+        }
+        case ST_WHILE: {
+            int l_start, l_end, c, jz;
+            IrInst in;
+            l_start = new_label(b);
+            if (l_start < 0) return -1;
+            l_end = new_label(b);
+            if (l_end < 0) return -1;
+            place_label(b, l_start);
+            c = lower_expr(b, prog, st->expr_idx);
+            if (c < 0) return -1;
+            memset(&in, 0, sizeof(in));
+            in.op = IR_JMPZ;
+            in.src1 = c;
+            in.line = st->line;
+            in.col = st->col;
+            jz = b->out->ninsts;
+            if (irf_add(b, &in) != 0) return -1;
+            b->label_fix[b->nfix][0] = jz;
+            b->label_fix[b->nfix][1] = l_end;
+            b->nfix++;
+            if (lower_stmts(b, prog, &prog->blocks[st->body_block]) != 0)
+                return -1;
+            memset(&in, 0, sizeof(in));
+            in.op = IR_JMP;
+            in.target = b->out->labels[l_start]; /* backward: resolved */
+            in.line = st->line;
+            in.col = st->col;
+            if (irf_add(b, &in) != 0) return -1;
+            place_label(b, l_end);
+            break;
+        }
         case ST_IF: {
             int c = lower_expr(b, prog, st->expr_idx);
             int jz, jend = -1, l_else, l_end;
@@ -216,7 +368,7 @@ static int lower_stmts(IrBuild *b, const Program *prog, const Block *blk) {
 static int ir_build_fn(const char *file, const Fn *fn, const Program *prog,
                        IrFn *out) {
     IrBuild b;
-    int rc;
+    int rc, k;
 
     memset(out, 0, sizeof(*out));
     {
@@ -228,14 +380,40 @@ static int ir_build_fn(const char *file, const Fn *fn, const Program *prog,
         out->name[i] = '\0';
     }
     out->ret_is_i32 = fn->ret_is_i32;
+    out->nparams = fn->nparams;
+    out->line = fn->line;
+    out->col = fn->col;
+    for (k = 0; k < fn->nparams; k++) {
+        strncpy(out->param_names[k], fn->param_names[k], KAVIR_MAX_NAME - 1);
+        out->param_names[k][KAVIR_MAX_NAME - 1] = '\0';
+    }
 
+    memset(&b, 0, sizeof(b));
     b.out = out;
     b.vreg = 0;
     b.nfix = 0;
     b.file = file;
+    b.prog = prog;
+    for (k = 0; k < fn->nparams; k++) {
+        strncpy(b.vnames[b.nvnames], fn->param_names[k],
+                KAVIR_MAX_NAME - 1);
+        b.vnames[b.nvnames][KAVIR_MAX_NAME - 1] = '\0';
+        b.vnums[b.nvnames] = k; /* param k IS vreg k */
+        b.nvnames++;
+    }
+    b.vreg = fn->nparams; /* params are vregs 0..nparams-1 */
 
     rc = lower_stmts(&b, prog, &prog->blocks[fn->body_block]);
-    if (rc == 0) fix_labels(&b);
+    if (rc == 0) {
+        fix_labels(&b);
+        out->nvregs = b.vreg;
+        if (out->nvregs > KAVIR_MAX_VREGS) {
+            kavir_error(file, fn->line, fn->col,
+                        "function too large (limit %d values per "
+                        "function)", KAVIR_MAX_VREGS);
+            rc = -1;
+        }
+    }
     return rc;
 }
 
@@ -278,8 +456,11 @@ void ir_dump(const IrModule *mod, FILE *out) {
     int i, k, l;
     for (i = 0; i < mod->nfns; i++) {
         const IrFn *fn = &mod->fns[i];
-        fprintf(out, "fn %s() -> %s {\n", fn->name,
-                fn->ret_is_i32 ? "i32" : "?");
+        fprintf(out, "fn %s(", fn->name);
+        for (k = 0; k < fn->nparams; k++)
+            fprintf(out, "%s%s: i32", k > 0 ? ", " : "",
+                    fn->param_names[k]);
+        fprintf(out, ") -> %s {\n", fn->ret_is_i32 ? "i32" : "?");
         for (k = 0; k < fn->ninsts; k++) {
             const IrInst *in = &fn->insts[k];
             int l;
@@ -317,6 +498,30 @@ void ir_dump(const IrModule *mod, FILE *out) {
             case IR_JMPZ:
                 fprintf(out, "  jmpz %%r%d, L%d\n", in->src1, in->target);
                 break;
+            case IR_LT: case IR_LE: case IR_GT:
+            case IR_GE: case IR_EQ: case IR_NE: {
+                const char *name = in->op == IR_LT ? "lt" :
+                                   in->op == IR_LE ? "le" :
+                                   in->op == IR_GT ? "gt" :
+                                   in->op == IR_GE ? "ge" :
+                                   in->op == IR_EQ ? "eq" : "ne";
+                fprintf(out, "  %%r%d = %s %%r%d, %%r%d\n",
+                        in->dest, name, in->src1, in->src2);
+                break;
+            }
+            case IR_COPY:
+                fprintf(out, "  %%r%d = copy %%r%d\n", in->dest, in->src1);
+                break;
+            case IR_CALL: {
+                int a;
+                fprintf(out, "  %%r%d = call %s(", in->dest,
+                        mod->fns[in->fn_idx].name);
+                for (a = 0; a < in->nargs; a++)
+                    fprintf(out, "%s%%r%d", a > 0 ? ", " : "",
+                            in->args[a]);
+                fprintf(out, ")\n");
+                break;
+            }
             }
         }
         for (l = 0; l < fn->nlabels; l++)

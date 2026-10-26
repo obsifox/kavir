@@ -1,8 +1,9 @@
-/* lexer.c — Kavir lexer (M2 subset; M2 surface is TEMPORARY, ADR-008 §0).
+/* lexer.c — Kavir lexer (M3 subset; the surface is TEMPORARY, ADR-008 §0).
  *
- * Tokens: keywords fn/return/i32/if/else/print, identifiers, integer
- * literals, string literals (escapes \n \t \r \\ \", UTF-8 bytes pass
- * through), punctuation ( ) { } ; -> and operators + - * / %.
+ * Tokens: keywords fn/return/i32/if/else/print/let/mut/while,
+ * identifiers, integer literals, string literals (escapes \n \t \r \\ \"
+ * , UTF-8 bytes pass through), punctuation ( ) { } ; -> : , = and
+ * operators + - * / % < <= > >= == !=.
  * // line comments.
  * Every token carries a file:line:col position (C-313 diagnostics rule).
  */
@@ -230,6 +231,12 @@ int lex(const char *file, const char *src, Token *toks, int max) {
                 set_token(&toks[n], T_ELSE, file, tok_line, tok_col, buf, 0);
             else if (strcmp(buf, "print") == 0)
                 set_token(&toks[n], T_PRINT, file, tok_line, tok_col, buf, 0);
+            else if (strcmp(buf, "let") == 0)
+                set_token(&toks[n], T_LET, file, tok_line, tok_col, buf, 0);
+            else if (strcmp(buf, "mut") == 0)
+                set_token(&toks[n], T_MUT, file, tok_line, tok_col, buf, 0);
+            else if (strcmp(buf, "while") == 0)
+                set_token(&toks[n], T_WHILE, file, tok_line, tok_col, buf, 0);
             else
                 set_token(&toks[n], T_IDENT, file, tok_line, tok_col, buf, 0);
             n++;
@@ -266,12 +273,45 @@ int lex(const char *file, const char *src, Token *toks, int max) {
             continue;
         }
 
+        /* two-character operators first, then the one-character forms */
+        if (c == '<' && lx.src[lx.pos + 1] == '=') {
+            adv(&lx); adv(&lx);
+            set_token(&toks[n], T_LE, file, tok_line, tok_col, "<=", 0);
+            n++; continue;
+        }
+        if (c == '>' && lx.src[lx.pos + 1] == '=') {
+            adv(&lx); adv(&lx);
+            set_token(&toks[n], T_GE, file, tok_line, tok_col, ">=", 0);
+            n++; continue;
+        }
+        if (c == '=' && lx.src[lx.pos + 1] == '=') {
+            adv(&lx); adv(&lx);
+            set_token(&toks[n], T_EQEQ, file, tok_line, tok_col, "==", 0);
+            n++; continue;
+        }
+        if (c == '!' && lx.src[lx.pos + 1] == '=') {
+            adv(&lx); adv(&lx);
+            set_token(&toks[n], T_NE, file, tok_line, tok_col, "!=", 0);
+            n++; continue;
+        }
+        if (c == '!') {
+            kavir_error(file, tok_line, tok_col,
+                        "unexpected character '!' (only '!=' exists; there "
+                        "is no unary '!' in the language)");
+            return -1;
+        }
+
         switch (c) {
         case '(': set_token(&toks[n], T_LPAREN, file, tok_line, tok_col, "(", 0); adv(&lx); n++; continue;
         case ')': set_token(&toks[n], T_RPAREN, file, tok_line, tok_col, ")", 0); adv(&lx); n++; continue;
         case '{': set_token(&toks[n], T_LBRACE, file, tok_line, tok_col, "{", 0); adv(&lx); n++; continue;
         case '}': set_token(&toks[n], T_RBRACE, file, tok_line, tok_col, "}", 0); adv(&lx); n++; continue;
         case ';': set_token(&toks[n], T_SEMI, file, tok_line, tok_col, ";", 0); adv(&lx); n++; continue;
+        case ':': set_token(&toks[n], T_COLON, file, tok_line, tok_col, ":", 0); adv(&lx); n++; continue;
+        case ',': set_token(&toks[n], T_COMMA, file, tok_line, tok_col, ",", 0); adv(&lx); n++; continue;
+        case '=': set_token(&toks[n], T_EQ, file, tok_line, tok_col, "=", 0); adv(&lx); n++; continue;
+        case '<': set_token(&toks[n], T_LT, file, tok_line, tok_col, "<", 0); adv(&lx); n++; continue;
+        case '>': set_token(&toks[n], T_GT, file, tok_line, tok_col, ">", 0); adv(&lx); n++; continue;
         case '+': set_token(&toks[n], T_PLUS, file, tok_line, tok_col, "+", 0); adv(&lx); n++; continue;
         case '-': set_token(&toks[n], T_MINUS, file, tok_line, tok_col, "-", 0); adv(&lx); n++; continue;
         case '*': set_token(&toks[n], T_STAR, file, tok_line, tok_col, "*", 0); adv(&lx); n++; continue;
@@ -280,7 +320,8 @@ int lex(const char *file, const char *src, Token *toks, int max) {
         default:
             kavir_error(file, tok_line, tok_col,
                         "unexpected character '%c' (0x%02x) — not part of "
-                        "the M2 surface",
+                        "the language surface (syntax is temporary, "
+                        "ADR-008 §0)",
                         (c >= 32 && c < 127) ? c : '?', (unsigned)c);
             return -1;
         }

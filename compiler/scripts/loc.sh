@@ -7,8 +7,9 @@
 #                   compiler/src/kavir.h.
 #   "Harness C"   = fuzz/fuzz_frontend.c (libFuzzer harness).
 #   "Tooling PY"  = tests/reference.py (independent oracle),
-#                   tests/run_m2.py (three-way runner),
-#                   scripts/fuzz.py (fuzz driver) — Python lines.
+#                   tests/run_m2.py (M2 runner), tests/run_m3.py (M3
+#                   runner), scripts/fuzz.py (fuzz driver),
+#                   scripts/gen_m3_fixtures.py (fixture generator).
 #   "Suite SH"    = tests/run.sh (M1.1 shell suite).
 #   Fixtures      = number of .k case files (not counted as LOC).
 # None of these are summed into "C LOC"; categories are never mixed.
@@ -32,8 +33,12 @@ if [ -f fuzz/fuzz_frontend.c ]; then
 fi
 printf '%8d  Tooling PY LOC (tests/reference.py — independent oracle)\n' \
     "$(wc -l < tests/reference.py)"
-printf '%8d  Tooling PY LOC (tests/run_m2.py — three-way runner)\n' \
+printf '%8d  Tooling PY LOC (tests/run_m2.py — M2 runner)\n' \
     "$(wc -l < tests/run_m2.py)"
+printf '%8d  Tooling PY LOC (tests/run_m3.py — M3 runner)\n' \
+    "$(wc -l < tests/run_m3.py)"
+printf '%8d  Tooling PY LOC (scripts/gen_m3_fixtures.py — M3 fixtures)\n' \
+    "$(wc -l < scripts/gen_m3_fixtures.py)"
 printf '%8d  Tooling PY LOC (scripts/fuzz.py — fuzz driver)\n' \
     "$(wc -l < scripts/fuzz.py)"
 printf '%8d  Suite SH LOC   (tests/run.sh — M1.1 suite)\n' \
@@ -42,3 +47,5 @@ printf '     %4d fixtures  (tests/fixtures/*.k, M1 boundary corpus)\n' \
     "$(ls tests/fixtures/*.k | wc -l)"
 printf '     %4d fixtures  (tests/cases_m2/*.k, M2 three-way corpus)\n' \
     "$(ls tests/cases_m2/*.k | wc -l)"
+printf '     %4d fixtures  (tests/cases_m3/*.k, M3 three-way corpus)\n' \
+    "$(ls tests/cases_m3/*.k | wc -l)"

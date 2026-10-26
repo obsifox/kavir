@@ -1,0 +1,5 @@
+// expect-error: undeclared variable
+fn main() -> i32 {
+    let x: i32 = x + 1;
+    return x;
+}

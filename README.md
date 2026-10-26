@@ -9,11 +9,13 @@ Research first, then design. See STATE.md for the current phase and gate.
 
 ## Status (2026-10-26)
 
-- Milestones: M1 (walking skeleton), M1.1 (stabilization), and M2
-  (output via write syscall, arithmetic with defined traps, if/else)
-  are COMPLETE — **author-approved only**. No independent-verification
-  claim is made; third-party verification runs on pinned commits
-  (28ba9f1, then the M2/M3 hashes).
+- Milestones: M1 (walking skeleton), M1.1 (stabilization), M2 (output
+  via write syscall, arithmetic with defined traps, if/else), and M3
+  (comparisons, while, let/let mut, function calls + recursion with a
+  defined 1024-frame depth limit) are COMPLETE — **author-approved
+  only**. No independent-verification claim is made; third-party
+  verification runs on pinned commits (28ba9f1, then the M2/M3
+  hashes).
 - Verification contract (ADR-005 v3 amendment b, ADR-007, ADR-008):
   every codegen test compares the compiled ELF against the IR
   interpreter AND an independently written Python oracle

@@ -1,0 +1,5 @@
+// expect-error: '=' and an initializer
+fn main() -> i32 {
+    let x: i32;
+    return 0;
+}

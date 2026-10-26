@@ -127,3 +127,17 @@ One line per ADR: number, title, status, date. Superseded decisions stay listed.
   (no loop/break/continue). Calling convention + frame layout treated
   as a near-one-way door BY THE USER: ADR-010 drafted and STOPPED for
   the user's decision before implementation.
+- 2026-10-26: ADR-010 (calling convention + frame layout) ACCEPTED via
+  the user's structured gate answers: (1) Option A — SysV AMD64
+  integer subset; (2) RBP-based frames; (3) recursion depth limit 1024
+  (coordinator recommended 256; user chose higher); (4) let/let mut
+  per the ADR-005 v3 wording (coordinator recommended a single mutable
+  let; user chose the pair). Implemented the same session; M3
+  conformance (41 cases) exercises the contract three-way.
+- 2026-10-26: M3 COMPLETE (author-approved only). Calibration
+  checkpoint run per ADR-005 v3 amendments (a)+(c): C LOC 3283
+  (definition in scripts/loc.sh), no estimate falsification signal,
+  ADR-002 schedule gate not needed, m5cut trigger evaluated — does
+  not fire (margin not huge; re-check at M4). Coordinator opinion:
+  keep v0.1.0 scope. libFuzzer leg not run this session (no clang) —
+  recorded as an open verification item for the third party.

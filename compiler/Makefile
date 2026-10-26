@@ -37,6 +37,7 @@ kavir-libfuzzer: $(SRC) $(HDR) fuzz/fuzz_frontend.c
 test: kavir
 	sh tests/run.sh
 	python3 tests/run_m2.py
+	python3 tests/run_m3.py
 
 # quick sanitizer fuzz (grammar-aware + mutation driver, gcc-friendly)
 fuzz: kavir-asan
@@ -56,6 +57,7 @@ fuzz-libfuzzer: kavir-libfuzzer
 	mkdir -p corpus
 	cp tests/fixtures/*.k corpus/ 2>/dev/null || true
 	cp tests/cases_m2/*.k corpus/ 2>/dev/null || true
+	cp tests/cases_m3/*.k corpus/ 2>/dev/null || true
 	./kavir-libfuzzer corpus -max_len=2048 -detect_leaks=0 \
 		-print_final_stats=1 -max_total_time=60
 

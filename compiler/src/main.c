@@ -49,9 +49,10 @@ static char *read_file(const char *path, long *out_len) {
 
 /* Runs the full frontend; returns 0 and fills mod on success. */
 static int frontend(const char *path, IrModule *mod) {
+    static Program prog; /* large (pools with name fields): keep off the
+                          * C stack for sanitizer builds */
     char *src;
     Token *toks = NULL;
-    Program prog;
     int ntoks, rc = -1;
 
     src = read_file(path, NULL);
@@ -83,7 +84,7 @@ done:
 }
 
 static int cmd_build(const char *in_path, const char *out_path) {
-    IrModule mod;
+    static IrModule mod; /* large: keep off the C stack */
     unsigned char *buf = NULL;
     char errbuf[KAVIR_MAX_ERR];
     int size = 0, entry_off = 0, rc = 1;
@@ -128,7 +129,7 @@ done:
 }
 
 static int cmd_interp(const char *in_path) {
-    IrModule mod;
+    static IrModule mod;
     InterpResult r;
     if (frontend(in_path, &mod) != 0) return 1;
     if (interp_run(&mod, &r) != 0) return 1;
@@ -142,7 +143,7 @@ static int cmd_interp(const char *in_path) {
 }
 
 static int cmd_dump_ir(const char *in_path) {
-    IrModule mod;
+    static IrModule mod;
     if (frontend(in_path, &mod) != 0) return 1;
     ir_dump(&mod, stdout);
     return 0;

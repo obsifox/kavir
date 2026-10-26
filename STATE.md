@@ -1,6 +1,6 @@
-phase: 3 (M1 + M1.1 + M2 COMPLETE — AUTHOR-APPROVED, not independently
-       verified; M3 in progress; third-party verification of 28ba9f1
-       pending; push of 8aa46cd pending GH_TOKEN)
+phase: 3 (M1 + M1.1 + M2 + M3 COMPLETE — AUTHOR-APPROVED, not
+       independently verified; M4 next; third-party verification of
+       28ba9f1 pending; push of 8aa46cd and successors pending GH_TOKEN)
 gate: passed (user approved 2026-10-26, chat reply "قبوله")
 last_session: 2026-10-26
 covered_workstreams: [W1, W2, W3, W4, W5, W6, W7, W8]
@@ -112,6 +112,42 @@ Summary of last session:
   frame layout declared a near-one-way door BY THE USER: ADR-010 draft
   written (options + evidence + recommendation) and implementation
   STOPPED for the user's choice before anything is locked.
+- ADR-010 ACCEPTED via the user's structured gate answers: SysV AMD64
+  integer subset (RDI/RSI/RDX/RCX/R8/R9, stack args right-to-left,
+  EAX return), RBP frames, recursion depth limit 1024 (user chose the
+  higher limit over the recommended 256), and let/let mut per the
+  ADR-005 v3 wording (user chose the pair over the recommended single
+  mutable let).
+- M3 COMPLETE (same session): comparisons (1/0, non-associative),
+  while, let/let mut with immutable params and flat scopes, calls
+  0..8 args with forward refs + mutual recursion, early return
+  anywhere (M2 rule relaxed, fixture moved), fall-off = 0; IR +8
+  opcodes (LT/LE/GT/GE/EQ/NE/COPY/CALL); interpreter rewritten to an
+  explicit frame stack (frame index == call depth, mirrors the hidden
+  R11D depth argument checked in every ELF prologue). Six bugs found
+  and fixed during bring-up (RET stopped codegen; global IR labels;
+  name-index-vs-vreg mapping; per-function adhoc label collision;
+  ELF depth off-by-one; two oracle-only bugs) — all caught by the
+  three-way contract or fuzz before any claim was made.
+- M3 verification (real numbers): run_m3 41/41, run_m2 39/39 (one
+  fixture moved to M3), run.sh 16/16; differential fuzz 80,000 inputs
+  (seed 20261026) → 46,879 accepted three-way, 33,121 rejected,
+  0 problems, 178.7 s; ASan+UBSan fuzz 20,000 inputs (seed 424242) ×
+  3 execs = 60,000 execs, 0 findings, 274.7 s. libFuzzer NOT RUN in
+  this session (no clang; two zig-workaround attempts failed at link
+  time) — recorded honestly; the verifier must run
+  `make kavir-libfuzzer && make fuzz-libfuzzer`.
+- M3 CALIBRATION CHECKPOINT (ADR-005 v3 amendments a+c): C LOC 3283
+  (3034 .c + 249 hdr; definition in scripts/loc.sh; was 2358 after
+  M2, delta +925); tooling PY 1835; suite SH 101; fixtures 13+39+41.
+  vs the estimate table: backend+ELF+runtime 863 (est. 3.8–6.6k),
+  frontend 1722 (est. 4–6k), interpreter 249 (est. 1–1.5k), tooling
+  ≈2014 (est. 2–3k) — no falsification signal; ADR-002 schedule gate
+  (as/ld fallback) evaluated and NOT needed. m5cut trigger evaluated:
+  DOES NOT FIRE (remaining ≈6–12k vs 2×5.3k = 10.6k; midpoint below
+  the trigger, upper edge would fire — margin not huge; M4/M5 are the
+  honest tests). Coordinator opinion recorded in M3.md: KEEP v0.1.0
+  scope; next scope conversation at M4 completion.
 
 Open questions:
 - Trademark database search (USPTO/EUIPO/WIPO) — user task before public release.
@@ -129,18 +165,16 @@ be third-party (LLVM/Cranelift/QBE); ADR-002 v2 bans third-party backends
 in the shipped v0.x path only.
 
 Next three steps:
-1. GATE (in flight): the user picks the calling convention + frame
-   layout (ADR-010 draft, options + evidence + recommendation written);
-   M3 (comparisons, while, let, calls, recursion — user-narrowed scope)
-   then implements the chosen option.
-2. M3 ends with the CALIBRATION CHECKPOINT (ADR-005 v3 amendments a+c):
-   actual LOC (with definitions), sessions and wall-time for backend +
-   ELF vs the ADR-005 v3 table; ADR-002 schedule gate (as/ld fallback)
-   evaluated; v0.1.0 scope review incl. the m5cut trigger and the
-   coordinator's continue-or-shrink opinion.
-3. Push pending GH_TOKEN (8aa46cd and successors — token env-var-only,
-   never written anywhere); third-party verification continues on
-   pinned hashes.
+1. M4 Aggregates per ADR-005 v3: structs by value (SysV integer-
+   register classes), enums as tagged sums, match with exhaustiveness,
+   Option[T] — each introduced through the same three-way contract;
+   any NEW one-way door (e.g. aggregate ABI classification details)
+   stops for the user first.
+2. At M4 completion: re-check the m5cut trigger with aggregate costs
+   measured (the first scope conversation that matters).
+3. Push pending GH_TOKEN (8aa46cd, 4d0921b, M3 commit — token
+   env-var-only, never written anywhere); third-party verification
+   continues on pinned hashes (M3.md has the exact commands).
 
 OPEN (user decision pending, NOTHING changed 2026-10-26): README.md and
 STATE.md call the repo private but obsifox/kavir is currently PUBLIC.

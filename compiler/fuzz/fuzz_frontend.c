@@ -27,11 +27,12 @@
 #include <string.h>
 
 int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
+    static Program prog;   /* large pooled structures: keep off the C
+                            * stack and reuse across inputs */
+    static IrModule mod;
     char *src;
     Token *toks;
     unsigned char *buf;
-    Program prog;
-    IrModule mod;
     InterpResult res;
     char errbuf[KAVIR_MAX_ERR];
     int n, out_size = 0, entry_off = 0;
