@@ -15,7 +15,7 @@
 #define KAVIR_MAX_FNS 8
 #define KAVIR_MAX_STMTS 32
 #define KAVIR_MAX_INSTS 64
-#define KAVIR_MAX_NAME 64
+#define KAVIR_MAX_NAME 64          /* identifiers: max 63 chars + NUL */
 #define KAVIR_MAX_CODE (1 << 16)
 #define KAVIR_MAX_ERR 256
 
@@ -29,7 +29,11 @@ typedef enum {
 typedef struct {
     TokKind kind;
     char lex[KAVIR_MAX_NAME];
-    long long int_val;
+    /* Unsigned so accumulation can never hit signed-overflow UB; the
+     * checker rejects any value above INT32_MAX (ADR-007). Values stored
+     * here are therefore always representable; too-large-for-u64 inputs
+     * are rejected in the lexer before reaching this field. */
+    unsigned long long int_val;
     int line, col;
 } Token;
 
@@ -39,7 +43,7 @@ typedef enum { EX_INT } ExprKind;
 
 typedef struct {
     ExprKind kind;
-    long long val;
+    unsigned long long val; /* checker guarantees <= INT32_MAX */
     int line, col;
 } Expr;
 

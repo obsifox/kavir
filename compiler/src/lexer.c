@@ -8,6 +8,7 @@
 #include <string.h>
 #include <stdarg.h>
 #include <ctype.h>
+#include <limits.h>
 
 /* ---------------- diagnostics (shared) ---------------- */
 
@@ -44,7 +45,8 @@ static int adv(Lexer *lx) {
 }
 
 static void set_token(Token *t, TokKind kind, const char *file,
-                      int line, int col, const char *lex, long long val) {
+                      int line, int col, const char *lex,
+                      unsigned long long val) {
     t->kind = kind;
     t->int_val = val;
     t->line = line;
@@ -113,12 +115,23 @@ int lex(const char *file, const char *src, Token *toks, int max) {
 
         if (is_ident_start(c)) {
             char buf[KAVIR_MAX_NAME];
-            size_t i = 0;
+            size_t i = 0, full_len = 0;
             while (is_ident_cont(cur(&lx)) && cur(&lx) != 0) {
                 if (i < KAVIR_MAX_NAME - 1) buf[i++] = (char)cur(&lx);
+                full_len++;
                 adv(&lx);
             }
             buf[i] = '\0';
+            if (full_len > KAVIR_MAX_NAME - 1) {
+                /* M1.1 review item: over-long identifiers must fail
+                 * loudly, never be silently truncated. */
+                kavir_error(file, tok_line, tok_col,
+                            "identifier exceeds the maximum length of %d "
+                            "characters (%llu characters total)",
+                            KAVIR_MAX_NAME - 1,
+                            (unsigned long long)full_len);
+                return -1;
+            }
             if (strcmp(buf, "fn") == 0)
                 set_token(&toks[n], T_FN, file, tok_line, tok_col, buf, 0);
             else if (strcmp(buf, "return") == 0)
@@ -132,14 +145,23 @@ int lex(const char *file, const char *src, Token *toks, int max) {
         }
 
         if (isdigit(c)) {
-            long long v = 0;
+            /* ADR-007: accumulate UNSIGNED and check BEFORE the multiply,
+             * so no signed-overflow UB is reachable. The M1.1 review found
+             * the previous code multiplied first (`v = v*10 + d` then
+             * compared), which wrapped e.g. 2^63 into a negative value
+             * that then slipped past the checker's range test.
+             * Values up to UINT64_MAX lex fine; the checker rejects
+             * anything above INT32_MAX. */
+            unsigned long long v = 0;
             while (isdigit(cur(&lx)) && cur(&lx) != 0) {
-                v = v * 10 + (cur(&lx) - '0');
-                if (v > 922337203685477580LL) { /* overflow guard */
+                unsigned long long d = (unsigned long long)(cur(&lx) - '0');
+                if (v > (ULLONG_MAX - d) / 10ULL) {
                     kavir_error(file, tok_line, tok_col,
-                                "integer literal too large");
+                                "integer literal too large (exceeds "
+                                "18446744073709551615)");
                     return -1;
                 }
+                v = v * 10ULL + d;
                 adv(&lx);
             }
             set_token(&toks[n], T_INT, file, tok_line, tok_col, NULL, v);

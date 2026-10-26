@@ -143,19 +143,43 @@ int main(int argc, char **argv) {
     if (argc < 3) return usage();
 
     if (strcmp(argv[1], "build") == 0) {
-        const char *out = NULL;
+        /* Flags and the input may appear in any order after 'build'
+         * (M1.1 review item: `kavir build -o out in.k` used to feed the
+         * literal string "-o" to the compiler as the input path). */
+        const char *out = NULL, *in = NULL;
         int i;
-        for (i = 2; i < argc - 1; i++) {
-            if (strcmp(argv[i], "-o") == 0 && i + 1 < argc) {
+        for (i = 2; i < argc; i++) {
+            if (strcmp(argv[i], "-o") == 0) {
+                if (i + 1 >= argc) {
+                    fprintf(stderr,
+                            "kavir build: '-o' must be followed by the "
+                            "output path\n");
+                    return usage();
+                }
                 out = argv[i + 1];
                 i++;
+            } else if (in == NULL) {
+                in = argv[i];
+            } else {
+                fprintf(stderr,
+                        "kavir build: unexpected extra argument '%s' "
+                        "(only one input file is allowed)\n", argv[i]);
+                return usage();
             }
         }
-        if (out == NULL) {
-            fprintf(stderr, "kavir build: missing -o <out>\n");
+        if (in == NULL) {
+            fprintf(stderr,
+                    "kavir build: no input file given "
+                    "(usage: kavir build <in.k> -o <out>)\n");
             return usage();
         }
-        return cmd_build(argv[2], out);
+        if (out == NULL) {
+            fprintf(stderr,
+                    "kavir build: no output path given — add '-o <out>'\n"
+                    "       example: kavir build %s -o prog\n", in);
+            return usage();
+        }
+        return cmd_build(in, out);
     }
     if (strcmp(argv[1], "interp") == 0 && argc == 3)
         return cmd_interp(argv[2]);

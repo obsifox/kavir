@@ -5,6 +5,17 @@
 node_modules/
 __pycache__/
 *.pyc
+*.o
+
+# Compiler binaries (M1.1: never track binaries)
+compiler/kavir
+compiler/kavir-asan
+compiler/kavir-libfuzzer
+compiler/prog
+compiler/corpus/
+
+# Fuzz crash artifacts are kept locally for triage only
+fuzz-crash-*
 
 # Local environment / secrets — never commit
 .env

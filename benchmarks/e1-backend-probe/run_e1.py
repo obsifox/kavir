@@ -14,7 +14,8 @@ import sys
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-QBE = "/home/z/my-project/build/qbe-1.2/qbe"
+# M1.1: configurable via env var — no machine-specific path required.
+QBE = os.environ.get("KAVIR_QBE", "/home/z/my-project/build/qbe-1.2/qbe")
 COMPILE_REPS = 5
 RUN_REPS = 3
 
@@ -36,6 +37,9 @@ def timed(cmd, reps):
 
 
 def main():
+    if not os.path.exists(QBE):
+        sys.exit("run_e1: qbe binary not found at %s — set KAVIR_QBE to "
+                 "your qbe 1.2 build" % QBE)
     print("== environment ==")
     print(sh("date -u").stdout.strip(), "|", sh("uname -m").stdout.strip())
     print(sh("gcc --version | head -1").stdout.strip())

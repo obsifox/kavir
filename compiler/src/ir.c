@@ -37,7 +37,8 @@ static void ir_build_fn(const Fn *fn, IrFn *out) {
         }
         out->insts[out->ninsts].op = IR_CONST;
         out->insts[out->ninsts].dest = vreg;
-        out->insts[out->ninsts].val = st->expr.val;
+        /* safe: the checker guarantees expr.val <= INT32_MAX (ADR-007) */
+        out->insts[out->ninsts].val = (long long)st->expr.val;
         out->insts[out->ninsts].line = st->expr.line;
         out->insts[out->ninsts].col = st->expr.col;
         out->ninsts++;

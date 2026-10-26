@@ -9,9 +9,13 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 
 E1 = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "e1-backend-probe"))
-WORK = "/home/z/my-project/build/e4work"
+# M1.1: no machine-specific default hardcoded as required infrastructure;
+# override with KAVIR_E4_WORK when /tmp does not suit you.
+WORK = os.environ.get("KAVIR_E4_WORK",
+                      os.path.join(tempfile.gettempdir(), "kavir-e4work"))
 
 
 def sha(path):

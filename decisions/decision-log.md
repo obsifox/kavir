@@ -68,3 +68,23 @@ One line per ADR: number, title, status, date. Superseded decisions stay listed.
   coordinator (now specified in the ADR texts); (3) ADR-005 v1 REJECTED —
   walking-skeleton order + codegen/ELF/runtime cost estimate required;
   v2 re-proposed on that basis, awaiting approval.
+- 2026-10-26: M1.1 stabilization (independent review of M1). Findings:
+  (1) lexer signed-overflow UB (2^63 wrapped negative past the checker);
+  (2) boundary literals not permanently tested; (3) fuzz too shallow;
+  (4) interpreter+ELF share one checker output (shared-blind-spot);
+  (5) run.sh pass counter wrong; over-long identifiers silently
+  truncated; `build -o out in.k` misparsed; (6) binaries tracked in git,
+  hardcoded /home/z paths in benchmarks, LOC definition loose.
+  ALL FIXED in M1.1; see reports/milestones/M1.md section "M1.1".
+- 2026-10-26: ADR-007 (integer overflow semantics + M2 independent test
+  oracle) — ACCEPTED, decisions DELEGATED by the user in the M1.1
+  instruction. Overflow = compile-time error for non-i32 literals;
+  runtime arithmetic overflow = defined TRAP (not silent wrap); lexer
+  made UB-free (unsigned, check-before-multiply). M2+ conformance adds
+  an independent oracle: three-way comparison (ELF == interpreter ==
+  separately computed expectation).
+- 2026-10-26: REPORTED to user, awaiting decision (no change made):
+  README.md and STATE.md describe the repository as private, but the
+  GitHub repo obsifox/kavir is currently PUBLIC. Per user instruction
+  ("report and wait; do not change the status"), neither the repo
+  visibility nor the two documents have been touched.

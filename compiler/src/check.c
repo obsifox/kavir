@@ -18,15 +18,17 @@
 
 static int expr_is_i32(const char *file, const Fn *fn, const Expr *e) {
     /* M1: the only expression form is an integer literal; its type is
-     * i32 iff the value fits. */
+     * i32 iff the value fits. The comparison is UNSIGNED (Expr.val is
+     * unsigned long long) so values at/above 2^63 cannot wrap into the
+     * accepted range — this is the fix for the M1.1 review finding. */
     (void)fn;
     if (e->kind != EX_INT) {
         kavir_error(file, e->line, e->col, "internal: unknown expression kind");
         return -1;
     }
-    if (e->val > INT32_MAX) {
+    if (e->val > (unsigned long long)INT32_MAX) {
         kavir_error(file, e->line, e->col,
-                    "integer literal %lld does not fit in i32 "
+                    "integer literal %llu does not fit in i32 "
                     "(range %d .. %d)", e->val, INT32_MIN, INT32_MAX);
         return -1;
     }
