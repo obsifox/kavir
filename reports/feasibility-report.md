@@ -1,6 +1,7 @@
 # Feasibility report — Kavir (working name)
 
-Date: 2026-10-26. Status: DRAFT for the feasibility gate (user has not approved yet).
+Date: 2026-10-26. Status: APPROVED at the feasibility gate (user approval received
+2026-10-26, chat reply "قبوله").
 Evidence base: 199 sources, 169 claims (claims.csv), 15 case studies, 20 recorded
 conflicts (conflicting-evidence.md). All eight workstreams covered (W1–W8); every
 quality dimension has ≥2 claims with primary backing (checker output below).
