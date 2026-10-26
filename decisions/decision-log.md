@@ -28,13 +28,24 @@ One line per ADR: number, title, status, date. Superseded decisions stay listed.
   order) — REJECTED by the user: milestone order must be a walking
   skeleton with a cost estimate for the custom backend.
 - 2026-10-26: ADR-005 v2 (walking skeleton M1..M7, LOC estimate ~9-15k,
-  scope = M6 minus ADR-003/004 cuts) — PROPOSED, awaiting user approval.
+  scope = M6 minus ADR-003/004 cuts) — ACCEPTED by the user WITH
+  amendments; recorded as v3.
+- 2026-10-26: ADR-005 v3 (v2 + user amendments: (a) calibration checkpoint
+  moved to M3 — actual LOC/sessions/time vs estimate, scope re-derived
+  there; (b) IR interpreter as correctness reference from M1 — every
+  codegen test must match interpreter behaviour, frontend fuzz under
+  ASan+UBSan, cost added to estimate (total ~10-16k LOC); (c) M5-cut
+  contingency defined IN ADVANCE with objective trigger and the list of
+  README claims forbidden in 0.1.0-m5cut (no memory-safety claims); (d)
+  README single-platform statement — done) — ACCEPTED; M1 authorized to
+  start immediately without re-approval; stop only for NEW irreversible
+  decisions.
 - 2026-10-26: ADR-006 platform roadmap (T2 Linux ARM64 -> T3 Wasm/WASI ->
   T4 Windows x64 -> T5 macOS ARM64; cost/risk per target; additive-
   architecture audit + per-target-module discipline rule; Wasm placed
-  second with rationale; v0.1.0 scope unchanged) — ACCEPTED (user-directed
-  planning ADR; ordering delegated to coordinator; each target activation
-  is a separate future decision).
+  second with rationale; v0.1.0 scope unchanged) — ACCEPTED; user
+  CONFIRMED the accepted order (ARM64, Wasm, Windows, macOS) the same
+  day: planning only, v0.1.0 unchanged.
 
 ## User decisions (recorded in chat, not ADRs)
 
