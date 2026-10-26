@@ -7,6 +7,26 @@ Research first, then design. See STATE.md for the current phase and gate.
 - Decisions: decisions/ (decision-log.md; ADRs will appear after the feasibility gate)
 - GitHub: private repository obsifox/kavir (public release is gated on v0.1.0 readiness)
 
+## Status (2026-10-26)
+
+- Milestones: M1 (walking skeleton), M1.1 (stabilization), and M2
+  (output via write syscall, arithmetic with defined traps, if/else)
+  are COMPLETE — **author-approved only**. No independent-verification
+  claim is made; third-party verification runs on pinned commits
+  (28ba9f1, then the M2/M3 hashes).
+- Verification contract (ADR-005 v3 amendment b, ADR-007, ADR-008):
+  every codegen test compares the compiled ELF against the IR
+  interpreter AND an independently written Python oracle
+  (compiler/tests/reference.py), byte-exact on stdout, stderr, and
+  exit code.
+- **The surface syntax is TEMPORARY.** Per the user's ordering rule,
+  semantics are defined first and grammar is finalized last; do not
+  write tutorials against the current grammar (ADR-008 section 0).
+- Source file extension: `.k` — FINAL per user decision (ADR-009).
+  The toolchain itself does not enforce any extension.
+- Licensing: intentionally none. No LICENSE file, no SPDX headers, no
+  license clauses (user decision, 2026-10-26).
+
 ## Supported platforms
 
 **v0.1.0 supports x86_64 Linux only.** Compiled programs are static ELF

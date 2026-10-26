@@ -113,3 +113,17 @@ One line per ADR: number, title, status, date. Superseded decisions stay listed.
   (effectively unclaimed), .kav (no hard collision, soft Kaspersky-
   abbreviation concern). DECISION RESERVED TO THE USER; the repo keeps
   the temporary .k naming until then.
+- 2026-10-26: USER DECISIONS (second message): (1) the M2 IR growth
+  (8 opcodes) ACCEPTED — re-evaluate at M3; (2) ADR-009 ACCEPTED with
+  the extension staying `.k` — nothing renamed (informed choice, the
+  kdb+/q collision was presented); (3) repo visibility unchanged;
+  README/STATE partially unfrozen ONLY for M2 status + the
+  temporary-syntax note, private/public lines untouched; (4) no
+  license of any kind, no history rewrite; M2 classified
+  AUTHOR-APPROVED (third-party verification on pinned hashes).
+- 2026-10-26: M3 scope NARROWED by the user (supersedes the ADR-005 v3
+  M3 line for M3 only): comparison operators, while, let (local
+  variable), user function calls + recursion (fib) — nothing else
+  (no loop/break/continue). Calling convention + frame layout treated
+  as a near-one-way door BY THE USER: ADR-010 drafted and STOPPED for
+  the user's decision before implementation.

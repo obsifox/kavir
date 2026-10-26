@@ -1,5 +1,6 @@
-phase: 3 (M1 walking skeleton + M1.1 stabilization COMPLETE; M2 next,
-       GATED on user verification of the M1.1 commit)
+phase: 3 (M1 + M1.1 + M2 COMPLETE — AUTHOR-APPROVED, not independently
+       verified; M3 in progress; third-party verification of 28ba9f1
+       pending; push of 8aa46cd pending GH_TOKEN)
 gate: passed (user approved 2026-10-26, chat reply "قبوله")
 last_session: 2026-10-26
 covered_workstreams: [W1, W2, W3, W4, W5, W6, W7, W8]
@@ -87,6 +88,30 @@ Summary of last session:
 - Compiler implementation language: C17 (sandbox has gcc only). Boundary per
   ADR-002 v2: no-cc applies to compiled Kavir programs; the compiler itself
   is bootstrapped with gcc.
+- M2 COMPLETE (commit 8aa46cd, LOCAL ONLY — push pending GH_TOKEN):
+  print via write syscall (string + i32 decimal), + - * / % with
+  runtime trap (exit 101, byte-pinned messages, ADR-007/008), if/else;
+  IR extended by 8 opcodes (additive); three-way oracle (ELF ==
+  interpreter == tests/reference.py INDEPENDENT expectation), byte-exact
+  stdout/stderr/exit; 40 M2 fixtures + 16 M1 checks green; fuzz with
+  real statistics only (80k differential inputs, 20k ASan inputs, 2x301 s
+  libFuzzer ASan+UBSan — no findings). M2 is AUTHOR-APPROVED ONLY; no
+  independent-verification claim is made. Details:
+  reports/milestones/M2.md.
+- USER DECISIONS (2026-10-26, second message): (1) the 8-opcode M2 IR
+  growth ACCEPTED; re-evaluate at M3. (2) Source extension stays `.k`
+  (ADR-009 ACCEPTED; nothing renamed). (3) Repo visibility NOT changed;
+  README/STATE refreshed for M2 status + temporary-syntax note WITHOUT
+  touching the private/public lines (this file's OPEN block below stays
+  verbatim). (4) No license of any kind; no history rewrite. M2 status
+  = author-approved; independent verification is a third-party task on
+  pinned hashes.
+- M3 STARTED. Scope narrowed BY THE USER to: comparison operators,
+  while, let (local variable), user function calls + recursion (fib)
+  — nothing else (loop/break/continue excluded). Calling convention +
+  frame layout declared a near-one-way door BY THE USER: ADR-010 draft
+  written (options + evidence + recommendation) and implementation
+  STOPPED for the user's choice before anything is locked.
 
 Open questions:
 - Trademark database search (USPTO/EUIPO/WIPO) — user task before public release.
@@ -104,18 +129,18 @@ be third-party (LLVM/Cranelift/QBE); ADR-002 v2 bans third-party backends
 in the shipped v0.x path only.
 
 Next three steps:
-1. GATE: user (or their independent verifier) re-runs the M1.1 checks on
-   the pinned commit (commands in reports/milestones/M1.md M1.1 section)
-   AND decides the private/public question. Only then:
-2. M2 Output + arithmetic per ADR-005 v3 + ADR-007: string literals,
-   u64->decimal print via write(2), integer arithmetic (+ - * / %) with
-   TRAP-on-overflow, if/else; THREE-way conformance (ELF vs interpreter
-   vs tests/reference.py independent expectation); RW PT_LOAD data
-   segment arrives; fixed trap exit code pinned in ADR-007 when runtime
-   lands.
-3. M3 Flow + calls, then the CALIBRATION CHECKPOINT (ADR-005 v3 (a)+(c)):
-   compare actual LOC/sessions/time vs estimate; review scope; evaluate
-   m5cut trigger.
+1. GATE (in flight): the user picks the calling convention + frame
+   layout (ADR-010 draft, options + evidence + recommendation written);
+   M3 (comparisons, while, let, calls, recursion — user-narrowed scope)
+   then implements the chosen option.
+2. M3 ends with the CALIBRATION CHECKPOINT (ADR-005 v3 amendments a+c):
+   actual LOC (with definitions), sessions and wall-time for backend +
+   ELF vs the ADR-005 v3 table; ADR-002 schedule gate (as/ld fallback)
+   evaluated; v0.1.0 scope review incl. the m5cut trigger and the
+   coordinator's continue-or-shrink opinion.
+3. Push pending GH_TOKEN (8aa46cd and successors — token env-var-only,
+   never written anywhere); third-party verification continues on
+   pinned hashes.
 
 OPEN (user decision pending, NOTHING changed 2026-10-26): README.md and
 STATE.md call the repo private but obsifox/kavir is currently PUBLIC.

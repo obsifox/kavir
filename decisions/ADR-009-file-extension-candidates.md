@@ -1,13 +1,26 @@
 # ADR-009: Kavir source file extension — candidates and collision research
 
-- **Status:** PROPOSED — decision RESERVED to the user (2026-10-26).
-  The user explicitly reserved this choice ("until my choice, do not
-  treat the temporary extension as final"). This ADR only records the
-  researched options.
-- **Current state (temporary, NOT final):** the toolchain and fixtures
-  carry the `.k` suffix from M1 as a filename convention. Nothing in
-  the compiler enforces an extension. This carry-over is explicitly
-  temporary and MUST NOT be read as a language decision.
+- **Status:** ACCEPTED — user decision, 2026-10-26 (second decision
+  message): **the extension stays `.k`**. Nothing is renamed. The
+  collision research below was presented to the user BEFORE the
+  decision; the user chose `.k` with that knowledge (informed
+  acceptance — the kdb+/q `.k` collision is acknowledged, not
+  overlooked).
+- **Current state (FINAL per user decision):** `.k` is the source file
+  extension of Kavir programs. The toolchain still does not enforce any
+  extension (open-with-any-name keeps working); fixtures and docs use
+  `.k`. The earlier "temporary" designation is resolved by this ADR.
+
+## Decision (2026-10-26)
+
+- Chosen: `.k` (status quo; zero rename churn in fixtures, docs, and
+  habits).
+- Explicitly rejected by the user: renaming to `.kavir`, `.kvr`, or
+  `.kav`, and any migration step.
+- Recorded consequence: `.k` is shared with kdb+/q's K sources and
+  other formats (see research below). Editor tooling for Kavir will
+  need its own grammar registration when tooling lands (M6 per
+  ADR-005 v3); no action is taken now.
 
 ## Why `.k` and `.kv` are indeed problematic (user intuition, confirmed)
 
@@ -55,16 +68,15 @@ The coordinator does NOT recommend `.k`, `.kv`, or `.kav`.
 
 ## Consequences
 
-- Until the user decides, the repo keeps the temporary `.k` naming;
-  the finalizing change is mechanical (rename fixtures, update usage
-  strings) and additive.
-- The syntax-finalization ADR (per the ADR ordering rule) is the
-  natural place to record the user's extension decision together with
-  the final grammar.
-- README wording about the extension is PENDING and intentionally
-  absent: README.md is frozen by user decision 3 (2026-10-26) until the
-  user announces the private/public decision. The lines to add then are
-  tracked in the M2 report.
+- RESOLVED (2026-10-26): the repo keeps `.k`; no rename happens.
+- The syntax-finalization ADR (per the ADR ordering rule) will record
+  the final grammar; `.k` is already final and independent of that
+  ADR.
+- README wording about the extension was added with the 2026-10-26
+  partial unfreeze of README.md/STATE.md (user decision 3, second
+  message): the user ordered README/STATE refreshed for M2 status and
+  the temporary-syntax note, private/public lines untouched. The
+  private/public question itself remains OPEN and untouched.
 
 ## Evidence references
 
