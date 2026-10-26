@@ -4,11 +4,21 @@ last_session: 2026-10-26
 covered_workstreams: [W1, W2, W3, W4, W5, W6, W7, W8]
 
 Summary of last session:
-- USER GATE APPROVED: feasibility report accepted by the user (one-word chat
-  approval). Phase 2 opened per skill protocol.
-- Session 2 (previous): rename Blup → Kavir; all 8 workstreams researched;
-  ledger 199 sources / 169 claims / 15 case studies / 20 conflicts;
-  feasibility-report.md + dimension-tradeoffs.md drafted; checker clean.
+- USER GATE APPROVED (2026-10-26, "قبوله"). Phase 2 opened.
+- Pre-ADR experiments DONE (benchmarks/): E1 backend probe GCC vs QBE
+  (checksums identical; QBE = 57% of the -O0->-O2 runtime win at lower
+  compile cost; two-tier runtime gap 4.79x confirmed; LLVM/Cranelift legs
+  impossible in sandbox — no root/rustc, recorded as unknown), E4
+  reproducibility (confirmed C-708/C-709; bonus finding: '-ffile-prefix-map=.'
+  naive form silently fails — absolute form required), E5 FFI smoke (QBE
+  calloc/printf-varargs/qsort-with-QBE-callback all worked).
+- ADR-001 (purpose/scope/non-goals) ACCEPTED (grounds: gate approval).
+- ADR-002 implementation strategy, ADR-003 memory model, ADR-004 type system,
+  ADR-005 v0.1.0 scope: DRAFTED as PROPOSED — presented to user (skill
+  checkpoint 2: one-way-door decisions, each with recommendation).
+- check_evidence.py normal + --gate: 0 errors (3 known warnings).
+- Compiler implementation language recommendation: C17 (sandbox has gcc only;
+  matches QBE/C-ABI story).
 
 Open questions:
 - Trademark database search (USPTO/EUIPO/WIPO) — user task before public release.
@@ -21,15 +31,17 @@ Open questions:
 - Region-allocation literature (S-630) and HOPL papers (S-736) still unfetched leads.
 
 Next three steps:
-1. Pre-ADR experiments (feasibility-report section 8): E1 backend probe (GCC vs
-   QBE in this sandbox; LLVM/Cranelift unavailable — no root, no rustc), E4
-   double-build reproducibility probe, E5 FFI probe. Results in benchmarks/.
-2. Write ADR-001 (purpose/scope/non-goals) + draft the four one-way-door ADRs
-   (implementation strategy, memory model, type system, v0.1.0 scope) as
-   Status: proposed, then present them to the user with recommendations
-   (checkpoint 2 of the skill).
-3. After user answers: finalize one-way-door ADRs, then remaining ADRs (error
-   handling, concurrency, modules, FFI, syntax), then Phase 3 prototype slice.
+1. USER CHECKPOINT 2 (one-way doors): user answers ADR-002/003/004/005 —
+   accept recommendations or "decide for me"; flip statuses to accepted and
+   log in decision-log.md.
+2. Remaining ADRs (not one-way doors, Claude's call with evidence): error
+   handling (Result+match, no exceptions), concurrency (postpone past v0.1.0,
+   design for prevention+detector), modules/build/versioning (lockfile+
+   checksums from first public release), FFI/ABI (C-ABI-first, per-target
+   conformance pages), surface syntax (last, cheapest).
+3. Phase 3 prototype slice: kavir compiler in C17 → Kavir IR → QBE IL → cc;
+   lexer→parser→checker→codegen with conformance suite + fuzz targets from
+   day one (per ADR-005 scope).
 
 GitHub: private repo obsifox/kavir (remote origin). Token handled via env var only,
 never stored in tracked files; not revoked or deleted (user instruction).
