@@ -206,8 +206,15 @@ src/kavir.h and reports/milestones/M3.md (M3.1 section).
    reference evaluator; (b) sanitizer mode: ASan+UBSan build runs
    build/interp/dump-ir on generated + mutated inputs; (c) libFuzzer
    harness extended to the M2 pipeline (interpreter runs quiet, traps
-   return instead of exiting). Reports state real numbers and limits;
-   the phrase "fuzz clean" is not used (user rule).
+   return instead of exiting). M4.1: the harness may bound each
+   interpreted run via interp_set_step_limit; expiry is the explicit
+   KAVIR_INTERP_STEP_LIMIT status of interp_run (no value, no output,
+   NOT a trap -- a legal divergent program, only stopped for the
+   campaign). The budget and the status are HARNESS-ONLY: the CLI
+   never sets a limit, no CLI or conformance path can produce the
+   status, and the three-way contract never observes it. Reports
+   state real numbers and limits; the phrase "fuzz clean" is not used
+   (user rule).
 
 ## Consequences
 

@@ -1,7 +1,9 @@
-phase: 3 (M1 + M1.1 + M2 + M3 + M3.1 + M4 COMPLETE — AUTHOR-APPROVED,
-       not independently verified; M5 BLOCKED until independent
-       verification per user instruction 2026-10-27; pushed to origin:
-       main = 365bc13 + backup tag backup-m4-20261027)
+phase: 3 (M1 + M1.1 + M2 + M3 + M3.1 + M4 + M4.1 COMPLETE --
+       author-verified; verification round 1 (2026-10-27) confirmed
+       HEAD ef766ec, M4.1 scope ONLY; the independent claim for the
+       M2-M4 milestone scopes waits for verification round 2 per user
+       instruction 2026-10-27; M5 BLOCKED until round 2 finishes;
+       pushed to origin: main = ef766ec + backup tag backup-m4-20261027)
 gate: passed (user approved 2026-10-26, chat reply "قبوله")
 last_session: 2026-10-26
 covered_workstreams: [W1, W2, W3, W4, W5, W6, W7, W8]
