@@ -1,9 +1,13 @@
-phase: 3 (M1 + M1.1 + M2 + M3 + M3.1 + M4 + M4.1 COMPLETE --
+phase: 3 (M1 + M1.1 + M2 + M3 + M3.1 + M4 + M4.1 + M4.2 COMPLETE --
        author-verified; verification round 1 (2026-10-27) confirmed
-       HEAD ef766ec, M4.1 scope ONLY; the independent claim for the
-       M2-M4 milestone scopes waits for verification round 2 per user
-       instruction 2026-10-27; M5 BLOCKED until round 2 finishes;
-       pushed to origin: main = ef766ec + backup tag backup-m4-20261027)
+       HEAD ef766ec, M4.1 scope ONLY; round 2 (2026-10-27) found 3
+       real bugs on ef766ec, all fixed in M4.2 (sret/stack-param
+       SIGSEGV, nested-match arm-pool corruption, arm cap counted
+       program-wide) plus 2 more found by the new suites (label
+       one-past-end, Option.Some diagnostic UB); M5 BLOCKED until
+       verification round 3 finishes per user instruction
+       2026-10-27; pushed to origin: through ef766ec + backup tag
+       backup-m4-20261027)
 gate: passed (user approved 2026-10-26, chat reply "قبوله")
 last_session: 2026-10-26
 covered_workstreams: [W1, W2, W3, W4, W5, W6, W7, W8]

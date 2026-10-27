@@ -13,12 +13,15 @@ Research first, then design. See STATE.md for the current phase and gate.
   via write syscall, arithmetic with defined traps, if/else), M3
   (comparisons, while, let/let mut, function calls + recursion with a
   defined 1024-frame depth limit), M4 (structs, enums, exhaustive
-  match, Option[T]) and the M4.1 hardening pass are COMPLETE --
-  **verified by the author + the first independent-verification round
-  (2026-10-27), which confirmed HEAD (M4.1 scope ONLY)**. No
-  independent-verification claim is made for the M2-M4 milestone
-  scopes until verification round 2 finishes (user instruction,
-  2026-10-27); verification runs on pinned commits.
+  match, Option[T]), the M4.1 hardening pass and the M4.2
+  verification-round-2 fixes are COMPLETE -- **verified by the author
+  + rounds 1 and 2 of independent verification** (round 1 confirmed
+  HEAD ef766ec, M4.1 scope only; round 2 found three real bugs on
+  ef766ec -- sret/stack-param SIGSEGV, nested-match arm-pool
+  corruption, arm cap counted program-wide -- all fixed in M4.2 and
+  recorded honestly in reports/milestones/M4.2.md). M5 stays blocked
+  until verification round 3 finishes (user instruction, 2026-10-27);
+  verification runs on pinned commits.
 - Verification contract (ADR-005 v3 amendment b, ADR-007, ADR-008):
   every codegen test compares the compiled ELF against the IR
   interpreter AND an independently written Python oracle
