@@ -657,6 +657,21 @@ static int gen_function(Emit *e, const char *file, const IrModule *mod,
         if (in->op == IR_CALL && in->ret_words > maxret)
             maxret = in->ret_words;
     }
+    /* pass 1b (M4.2 fix, verification round 2 bug 1): PARAMETERS also
+     * occupy vreg words -- the vreg frame area must cover the whole
+     * param region even when the body has NO dest-writing instruction
+     * at all (e.g. a function that only does `return x;`). Without
+     * this walk, param stores alias the depth slot and the hidden-ptr
+     * save slot and spill below the frame; a >2-word stack parameter
+     * overwrote the saved sret pointer and the return copy wrote
+     * through garbage (SIGSEGV). The interpreter is unaffected (its
+     * frames are sized by fn->nvregs, which already counts params). */
+    {
+        int param_total = 0;
+        for (k = 0; k < fn->nparams; k++)
+            param_total += fn->param_words[k];
+        if (param_total > nregs) nregs = param_total;
+    }
 
     /* frame layout (ADR-011), all offsets negative from rbp:
      *   vreg w        at -8*(w+1)          (w < nregs; low half used)
@@ -944,6 +959,15 @@ static int gen_function(Emit *e, const char *file, const IrModule *mod,
         }
     }
     }
+    /* M4.2 (bug 4, found by the capacity-boundary suite): a label
+     * placed ONE PAST the last IR instruction ("fall off the end" --
+     * e.g. an else-less if whose body ends in `return` as the
+     * function's last statement) must resolve to the fall-off epilogue
+     * below; without this placement its jump fixup stayed dangling and
+     * codegen failed with "internal: unresolved label". */
+    if (fn->ninsts < KAVIR_MAX_INSTS &&
+        g_ir_lbl[fn_idx][fn->ninsts] >= 0)
+        place_lbl_at(e, g_ir_lbl[fn_idx][fn->ninsts]);
     /* falling off the end: return zeroes for every result word (the
      * interpreter zeroes fresh frames, so this matches it exactly) */
     emit_xor_eax_eax(e);

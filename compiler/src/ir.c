@@ -84,6 +84,21 @@ static int new_label(IrBuild *b) {
 }
 
 static int place_label(IrBuild *b, int label) {
+    /* M4.2: a label may legally sit ONE PAST the last instruction
+     * ("fall off the end"), e.g. an else-less if whose body ends in
+     * `return` as the function's last statement. The backend resolves
+     * such labels to the fall-off epilogue. The only impossible
+     * position is ninsts == KAVIR_MAX_INSTS: the backend intern table
+     * g_ir_lbl[fn][] is sized KAVIR_MAX_INSTS, so index ninsts would
+     * be out of bounds -- reject that corner with a clean diagnostic
+     * (a 1024-instruction function ending exactly at the cap AND
+     * carrying a trailing label). */
+    if (b->out->ninsts >= KAVIR_MAX_INSTS) {
+        kavir_error(b->file, 1, 1,
+                    "function too large (a label would sit at the IR "
+                    "instruction cap)");
+        return -1;
+    }
     b->out->labels[label] = b->out->ninsts;
     return 0;
 }
@@ -327,12 +342,16 @@ static int lower_expr(IrBuild *b, const Program *prog, int eidx) {
         int scrut = lower_expr(b, prog, e->a);
         int dst = b->vreg++;
         int l_end = new_label(b);
-        int arm0 = e->aux, narms = e->nargs;
-        int i, any_wild = 0;
+        int ai, nvisited, any_wild = 0;
         if (scrut < 0) return -1;
         if (l_end < 0) return -1;
-        for (i = 0; i < narms; i++) {
-            const MatchArm *arm = &prog->arms[arm0 + i];
+        /* M4.2: own arms are a next_own CHAIN, not a contiguous run --
+         * nested match bodies append their arms into the shared pool
+         * between this match's own arms (verification round 2, bug 2) */
+        for (ai = e->aux, nvisited = 0;
+             ai >= 0 && nvisited < e->nargs;
+             ai = prog->arms[ai].next_own, nvisited++) {
+            const MatchArm *arm = &prog->arms[ai];
             if (arm->is_wild) {
                 int v = lower_expr(b, prog, arm->body);
                 IrInst in;
@@ -440,7 +459,7 @@ static int lower_expr(IrBuild *b, const Program *prog, int eidx) {
                     b->nfix++;
                 }
                 b->nvnames = saved_names; /* bindings vanish */
-                place_label(b, l_next);
+                if (place_label(b, l_next) != 0) return -1;
             }
         }
         if (!any_wild) {
@@ -463,7 +482,7 @@ static int lower_expr(IrBuild *b, const Program *prog, int eidx) {
             in.col = e->col;
             if (irf_add(b, &in) != 0) return -1;
         }
-        place_label(b, l_end);
+        if (place_label(b, l_end) != 0) return -1;
         return dst;
     }
     case EX_BIN: {
@@ -600,7 +619,7 @@ static int lower_stmts(IrBuild *b, const Program *prog, const Block *blk) {
             if (l_start < 0) return -1;
             l_end = new_label(b);
             if (l_end < 0) return -1;
-            place_label(b, l_start);
+            if (place_label(b, l_start) != 0) return -1;
             c = lower_expr(b, prog, st->expr_idx);
             if (c < 0) return -1;
             memset(&in, 0, sizeof(in));
@@ -621,7 +640,7 @@ static int lower_stmts(IrBuild *b, const Program *prog, const Block *blk) {
             in.line = st->line;
             in.col = st->col;
             if (irf_add(b, &in) != 0) return -1;
-            place_label(b, l_end);
+            if (place_label(b, l_end) != 0) return -1;
             break;
         }
         case ST_IF: {
@@ -658,12 +677,12 @@ static int lower_stmts(IrBuild *b, const Program *prog, const Block *blk) {
                 b->label_fix[b->nfix][0] = jend;
                 b->label_fix[b->nfix][1] = l_end;
                 b->nfix++;
-                place_label(b, l_else);
+                if (place_label(b, l_else) != 0) return -1;
                 if (lower_stmts(b, prog, &prog->blocks[st->else_block]) != 0)
                     return -1;
-                place_label(b, l_end);
+                if (place_label(b, l_end) != 0) return -1;
             } else {
-                place_label(b, l_else);
+                if (place_label(b, l_else) != 0) return -1;
             }
             break;
         }

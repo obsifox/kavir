@@ -584,7 +584,7 @@ static int expr_check(const char *file, Program *prog, int eidx,
     case EX_MATCH: {
         int st = expr_check(file, prog, e->a, sc, -1);
         const TypeDef *td;
-        int i, arm0 = e->aux, narms = e->nargs;
+        int i, ai, nvisited;
         unsigned char covered[KAVIR_MAX_VARIANTS];
         int wild_seen = 0;
         for (i = 0; i < KAVIR_MAX_VARIANTS; i++) covered[i] = 0;
@@ -596,8 +596,13 @@ static int expr_check(const char *file, Program *prog, int eidx,
             return -1;
         }
         td = &prog->types[st - 1];
-        for (i = 0; i < narms; i++) {
-            MatchArm *arm = &prog->arms[arm0 + i];
+        /* M4.2: own arms are a next_own CHAIN, not a contiguous run --
+         * nested match bodies append their arms into the shared pool
+         * between this match's own arms (verification round 2, bug 2) */
+        for (ai = e->aux, nvisited = 0;
+             ai >= 0 && nvisited < e->nargs;
+             ai = prog->arms[ai].next_own, nvisited++) {
+            MatchArm *arm = &prog->arms[ai];
             int save_vars, j, bt;
             if (wild_seen) {
                 kavir_error(file, arm->line, arm->col,
@@ -638,9 +643,13 @@ static int expr_check(const char *file, Program *prog, int eidx,
                     return -1;
                 }
                 if (arm->nbinds != 1) {
+                    /* M4.2 fix: this format had two %d and ONE
+                     * argument -- undefined behaviour on this error
+                     * path (printed garbage, found by the new
+                     * err_m42_x5 test) */
                     kavir_error(file, arm->line, arm->col,
-                                "Option.Some carries %d value(s); the "
-                                "the pattern binds %d", arm->nbinds);
+                                "Option.Some carries 1 value(s); the "
+                                "pattern binds %d", arm->nbinds);
                     return -1;
                 }
                 arm->bind_ty[0] = td->elem_ty; /* Some carries one T */

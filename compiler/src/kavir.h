@@ -68,6 +68,12 @@
 #define KAVIR_MAX_VARIANT_WORDS 8   /* payload words per variant */
 #define KAVIR_MAX_STRUCT_WORDS 8    /* max struct size in 4-byte words */
 #define KAVIR_MAX_ARMS 32           /* match arms per match expression */
+#define KAVIR_MAX_ARMS_POOL 512     /* match-arm pool, program-wide (the
+                                     * per-match limit is KAVIR_MAX_ARMS;
+                                     * M4.2: the two scopes were conflated
+                                     * and the per-match limit exhausted
+                                     * program-wide -- verification
+                                     * round 2, bug 3) */
 #define KAVIR_MAX_LITFIELDS 256     /* struct-literal field names, pooled */
 #define KAVIR_MAX_PATHS 256         /* assignment field-path segments */
 #define KAVIR_MAX_ASSIGN_PATH 3     /* max field steps in one assignment */
@@ -184,10 +190,16 @@ typedef struct {
     int line, col;          /* EX_BIN: operator position; EX_CALL: '(' */
 } Expr;
 
-/* One match arm (pooled in Program.arms; EX_MATCH stores the start
- * index + count in aux/nargs). Patterns are flat: Type.Variant with
- * direct payload bindings, or the trailing wildcard _ (ADR-004 cut
- * list 1: no guards, no nested patterns). */
+/* One match arm (pooled in Program.arms; M4.2: EX_MATCH stores the
+ * index of its FIRST OWN arm in aux and its own-arm count in nargs;
+ * the remaining own arms are reached through the next_own chain).
+ * The chain exists because arm BODIES are parsed between an arm's
+ * claim and the next arm, so a NESTED match appends its arms into the
+ * shared pool BETWEEN this match's own arms -- a base+count contiguous
+ * walk would read the nested match's arms (verification round 2,
+ * bug 2). Patterns are flat: Type.Variant with direct payload
+ * bindings, or the trailing wildcard _ (ADR-004 cut list 1: no
+ * guards, no nested patterns). */
 typedef struct {
     int is_wild;    /* 1 = _ */
     int is_none;    /* 1 = Option.None pattern (ADR-011) */
@@ -199,6 +211,7 @@ typedef struct {
     int bind_ty[KAVIR_MAX_VARIANT_WORDS]; /* checker: per-bind types */
     int nbinds;
     int body;       /* body expression pool index */
+    int next_own;   /* M4.2: next arm of the SAME match (-1 = last) */
     int line, col;
 } MatchArm;
 
@@ -252,7 +265,8 @@ typedef struct {
     int ntypes;
     RawType raws[KAVIR_MAX_RAWS];
     int nraws;
-    MatchArm arms[KAVIR_MAX_ARMS];
+    MatchArm arms[KAVIR_MAX_ARMS_POOL]; /* M4.2: program-wide pool; the
+                                         * per-match limit is separate */
     int narms;
     char litfields[KAVIR_MAX_LITFIELDS][KAVIR_MAX_NAME];
     int nlitfields;

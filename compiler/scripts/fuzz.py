@@ -75,6 +75,28 @@ STRINGS = ["hi", "a\\tb", "x\\n", "q\\\\z", "\\\"s\\\"", "کاویر", "long "
            "string with spaces and \\n newline"]
 
 
+# M4.2 (user instruction 2026-10-27): generator FEATURE-COVERAGE
+# counters. Every generated program records which language features it
+# actually exercises; the drivers report the per-feature percentage so
+# claims like "N programs, zero problems" always carry coverage data.
+GEN_COVER = {}
+
+
+def gen_cover(feats):
+    for f in feats:
+        GEN_COVER[f] = GEN_COVER.get(f, 0) + 1
+
+
+def gen_cover_report(total):
+    """Renders the per-feature coverage table."""
+    out = ["generator feature coverage over %d programs:" % total]
+    for feat in sorted(GEN_COVER):
+        n = GEN_COVER[feat]
+        out.append("  %-24s %6d  %5.1f%%" % (feat, n,
+                                             100.0 * n / max(total, 1)))
+    return "\n".join(out)
+
+
 def gen_leaf(rng, scope):
     r = rng.random()
     if r < 0.28:
@@ -235,6 +257,7 @@ def gen_program(rng):
                            scope))
     lines.append("    return %s;" % rng.choice(["0", "1", "7", "300"]))
     lines.append("}")
+    gen_cover({"m2m3_program", "fn_defined", "call_result_used"})
     return "\n".join(lines) + "\n"
 
 
@@ -269,32 +292,77 @@ def m4_expr(rng, depth, scope):
 
 
 def gen_m4_program(rng):
+    """M4-layer generator (ADR-011 surface). M4.2: generates aggregate
+    functions that are REALLY called with their results used or
+    printed -- including the bug-1 class (direct return of a >2-word
+    aggregate parameter, with and without locals), an aggregate chain
+    across three frames, and nested matches (user enum + Option).
+    Every emitted feature is recorded in GEN_COVER."""
     _name_ctr[0] = 0
+    feats = {"m4_program"}
     lines = list(M4_TYPES)
-    # a helper fn taking one aggregate argument of a random shape
-    shape = rng.choice(["Pt", "Tri", "P5"])
-    words = {"Pt": 2, "Tri": 3, "P5": 5}[shape]
-    lit = ", ".join("%s: %s" % (f, m4_expr(rng, 1, []))
-                    for f in "abcde"[:words])
+    lines.append("struct Oct { a: i32, b: i32, c: i32, d: i32, "
+                 "e: i32, f: i32, g: i32, h: i32 }")
+    words = {"Pt": 2, "Tri": 3, "P5": 5, "Oct": 8}
+
+    def lit(shape, base=0):
+        w = words[shape]
+        return "%s { %s }" % (shape, ", ".join(
+            "%s: %d" % (f, base + 3 * j + 1)
+            for j, f in enumerate("abcdefgh"[:w])))
+
+    # helper 1: weighted field sum (aggregate PARAM -> i32)
+    shape = rng.choice(list(words))
+    w = words[shape]
     lines.append("fn wsum(v: %s) -> i32 {" % shape)
-    acc = []
-    for j, f in enumerate("abcde"[:words]):
-        acc.append("%d * v.%s" % (1 << (2 * j), f))
-    lines.append("    return %s;" % " + ".join(acc))
+    lines.append("    return %s;" % " + ".join(
+        "%d * v.%s" % (1 << (2 * j), f)
+        for j, f in enumerate("abcdefgh"[:w])))
     lines.append("}")
-    lines.append("fn mk() -> %s {" % shape)
-    lines.append("    return %s { %s };" % (shape, lit))
+    # helper 2: IDENTITY on an aggregate parameter -- the bug-1 shape
+    # (>2 words => sret return; no locals half the time)
+    rshape = rng.choice(["Tri", "P5", "Oct"])
+    rw = words[rshape]
+    lines.append("fn ident(v: %s) -> %s {" % (rshape, rshape))
+    if rng.random() < 0.5:
+        feats.add("agg_return_nolocals")
+        lines.append("    return v;")
+    else:
+        feats.add("agg_return_locals")
+        lines.append("    let mut r: %s = v;" % rshape)
+        lines.append("    r.a = r.a + 0;")
+        lines.append("    return r;")
     lines.append("}")
+    # helper 3: chain hop (aggregate crosses three frames total)
+    lines.append("fn hop(v: %s) -> %s {" % (rshape, rshape))
+    lines.append("    return ident(v);")
+    lines.append("}")
+    feats.add("agg_param_fn")
+    feats.add("agg_chain")
+
     lines.append("fn main() -> i32 {")
-    lines.append("    print(wsum(mk()));")
-    lines.append("    let v: %s = mk();" % shape)
+    lines.append("    print(wsum(%s));" % lit(shape, 1))
+    feats.add("agg_call_used")
+    lines.append("    let v: %s = %s;" % (shape, lit(shape, 2)))
     lines.append("    print(wsum(v));")
+    # identity/chain calls with printed, value-checkable results
+    lines.append("    let r1: %s = ident(%s);" % (rshape, lit(rshape, 3)))
+    lines.append("    print(r1.a);")
+    lines.append("    print(r1.%s);" % "abcdefgh"[rw - 1])
+    lines.append("    let r2: %s = hop(%s);" % (rshape, lit(rshape, 4)))
+    lines.append("    print(r2.a + r2.%s);" % "abcdefgh"[rw - 1])
+    # stack/register scalar mix alongside the aggregate call
+    lines.append("    print(wsum(v) + %s);" % " + ".join(
+        "%d" % (i + 1) for i in range(7)))
+    feats.add("scalar_mix_7")
     if rng.random() < 0.6:
-        lines.append("    let mut w: %s = v;" % shape)
-        f = rng.choice("abcde"[:words])
-        lines.append("    w.%s = %s;" % (f, m4_expr(rng, 1, [])))
-        lines.append("    print(wsum(w));")
-        lines.append("    print(v.%s);" % f)  # copy semantics: unchanged
+        lines.append("    let mut w2: %s = v;" % shape)
+        f = rng.choice("abcdefgh"[:w])
+        lines.append("    w2.%s = %s;" % (f, m4_expr(rng, 1, [])))
+        lines.append("    print(wsum(w2));")
+        lines.append("    print(v.%s);" % f)  # copy semantics observable
+        feats.add("field_assign")
+        feats.add("copy_semantics")
     # enum + match + Option layer
     if rng.random() < 0.7:
         lines.append("    let s: Sh = %s;" % rng.choice(
@@ -304,14 +372,29 @@ def gen_m4_program(rng):
         lines.append("        Sh.Balloon(r) => r * r,")
         lines.append("        Sh.Box(w2, h2) => w2 * h2,")
         lines.append("    });")
+        feats.add("enum_match")
         lines.append("    let o: Option[i32] = %s;" % rng.choice(
             ["Option.None", "Option.Some(41)", "Option.Some(0 - 5)"]))
         lines.append("    print(match o {")
         lines.append("        Option.None => 0 - 99,")
         lines.append("        Option.Some(v2) => v2 + 1,")
         lines.append("    });")
-    lines.append("    return 0;")
-    lines.append("}")
+        feats.add("option_match")
+        # NESTED match: Option match inside an enum arm (2 levels)
+        if rng.random() < 0.6:
+            lines.append("    print(match s {")
+            lines.append("        Sh.Dot => match o {")
+            lines.append("            Option.None => 0,")
+            lines.append("            Option.Some(v3) => v3,")
+            lines.append("        },")
+            lines.append("        Sh.Balloon(r) => match o {")
+            lines.append("            Option.None => r,")
+            lines.append("            Option.Some(v3) => r + v3,")
+            lines.append("        },")
+            lines.append("        Sh.Box(w2, h2) => w2 + h2,")
+            lines.append("    });")
+            feats.add("nested_match")
+    gen_cover(feats)
     return "\n".join(lines) + "\n"
 
 
@@ -481,6 +564,7 @@ def main():
         print("fuzz diff done: %d accepted+checked, %d compile-rejected, "
               "%d problems, %.1fs, seed=%d"
               % (n_checked, n_rejected, problems, dt, args.seed))
+        print(gen_cover_report(n_checked + n_rejected))
         print("NOT covered: memory safety of this run (plain build), "
               "coverage guidance, CLI/file-IO paths, persistent mode.")
         sys.exit(1 if problems else 0)

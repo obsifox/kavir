@@ -230,7 +230,8 @@ static int parse_unary(Parser *p) {
                 return -1;
             if (e.nargs >= KAVIR_MAX_ARGS) {
                 kavir_error(p->file, peek(p)->line, peek(p)->col,
-                            "too many arguments");
+                            "too many arguments (limit %d)",
+                            KAVIR_MAX_ARGS);
                 return -1;
             }
             e.args[e.nargs++] = 0;
@@ -249,10 +250,13 @@ static int parse_unary(Parser *p) {
         return node;
     }
     if (t->kind == T_MATCH) {
-        /* match expr { arm, arm, ... } -- arms pooled program-wide */
+        /* match expr { arm, arm, ... } -- arms pooled program-wide;
+         * own arms are linked via MatchArm.next_own because nested
+         * match bodies append their arms into the pool BETWEEN this
+         * match's own arms (M4.2, verification round 2 bug 2) */
         const Token *at = advance(p);
         Expr e;
-        int node, arm_start, own_arms;
+        int node, first_arm, prev_arm, own_arms;
         memset(&e, 0, sizeof(e));
         e.kind = EX_MATCH;
         e.a = -1;
@@ -269,21 +273,38 @@ static int parse_unary(Parser *p) {
         if (e.a < 0) return -1;
         if (expect(p, T_LBRACE, "'{' to open the match arms") != 0)
             return -1;
-        arm_start = p->prog->narms;
+        first_arm = -1;
+        prev_arm = -1;
         own_arms = 0;
         while (peek(p)->kind != T_RBRACE) {
             MatchArm *arm;
-            if (p->prog->narms >= KAVIR_MAX_ARMS) {
+            int arm_idx;
+            /* M4.2 (verification round 2, bug 3): the per-match arm
+             * limit is counted PER MATCH. The pool is shared by ALL
+             * matches in the program, so testing prog->narms here made
+             * the per-match limit exhaust program-wide and falsely
+             * reject later matches. The program-wide pool now has its
+             * own capacity with its own diagnostic. */
+            if (own_arms >= KAVIR_MAX_ARMS) {
                 t = peek(p);
                 kavir_error(p->file, t->line, t->col,
-                            "too many match arms (limit %d per match)",
+                            "too many match arms in one match (limit %d)",
                             KAVIR_MAX_ARMS);
                 return -1;
             }
-            arm = &p->prog->arms[p->prog->narms];
+            if (p->prog->narms >= KAVIR_MAX_ARMS_POOL) {
+                t = peek(p);
+                kavir_error(p->file, t->line, t->col,
+                            "too many match arms in the program (limit "
+                            "%d total)", KAVIR_MAX_ARMS_POOL);
+                return -1;
+            }
+            arm_idx = p->prog->narms;
+            arm = &p->prog->arms[arm_idx];
             memset(arm, 0, sizeof(*arm));
             arm->variant = -1;
             arm->pat_ty = -1;
+            arm->next_own = -1;
             arm->line = peek(p)->line;
             arm->col = peek(p)->col;
             if (peek(p)->kind == T_UNDERSCORE) {
@@ -412,6 +433,9 @@ static int parse_unary(Parser *p) {
                 return -1;
             p->prog->narms++;
             own_arms++;
+            if (first_arm < 0) first_arm = arm_idx;
+            else p->prog->arms[prev_arm].next_own = arm_idx;
+            prev_arm = arm_idx;
             arm->body = parse_expr(p);
             if (arm->body < 0) return -1;
             if (peek(p)->kind == T_COMMA) {
@@ -422,10 +446,12 @@ static int parse_unary(Parser *p) {
         }
         if (expect(p, T_RBRACE, "'}' to close the match arms") != 0)
             return -1;
-        e.aux = arm_start;
-        /* count ONLY this match's own arms: arm bodies are parsed
-         * inside the loop and a NESTED match appends its arms to the
-         * same pool, so (narms - arm_start) would overcount */
+        /* M4.2: aux = FIRST OWN arm; own arms chain via next_own.
+         * Counting ONLY this match's own arms is unchanged: arm bodies
+         * are parsed inside the loop and a NESTED match appends its
+         * arms to the same pool, so (narms - arm_start) would
+         * overcount. */
+        e.aux = first_arm;
         e.nargs = own_arms;
         if (e.nargs == 0) {
             kavir_error(p->file, at->line, at->col,

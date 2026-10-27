@@ -41,6 +41,8 @@ test: kavir
 	python3 tests/run_m31.py
 	python3 tests/run_m4.py
 	python3 tests/run_m4_elf.py
+	python3 tests/run_m42.py
+	python3 tests/run_m42_cap.py
 
 # quick sanitizer fuzz (grammar-aware + mutation driver, gcc-friendly)
 fuzz: kavir-asan
