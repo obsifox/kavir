@@ -29,7 +29,7 @@ struct Quad {
 }
 // Struct value semantics: field read, field assignment through
 // 'let mut', whole-value assignment, and copy-on-binding (aliasing is
-// never observable — ADR-011).
+// never observable -- ADR-011).
 fn main() -> i32 {
     let mut p: Point = Point { x: 3, y: 4 };
     print(p.x + p.y);

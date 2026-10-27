@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""tests/run_m31.py — M3.1 ELF structural checks (ADR-010 alignment).
+"""tests/run_m31.py -- M3.1 ELF structural checks (ADR-010 alignment).
 
 The three-way suite (run_m2/run_m3) pins BEHAVIOUR byte for byte; this
 script pins the ELF-side STRUCTURE of ADR-010's stack rule, which
@@ -85,8 +85,18 @@ def main():
             os.unlink(out_path)
         except OSError:
             pass
-        b = subprocess.run([kavir, "build", path, "-o", out_path],
-                           capture_output=True, timeout=60)
+        try:
+            b = subprocess.run([kavir, "build", path, "-o", out_path],
+                               capture_output=True, timeout=60)
+        except subprocess.TimeoutExpired:
+            print("TIMEOUT %s: build exceeded 60s (compiler hang?); "
+                  "reported FAIL" % case)
+            failed += 1
+            try:
+                os.unlink(out_path)
+            except OSError:
+                pass
+            continue
         if b.returncode != 0:
             print("FAIL %s (build: %s)" % (case, b.stderr.decode()[:200]))
             failed += 1
@@ -104,7 +114,11 @@ def main():
                 expect["sub16"], sub16)
 
         # smoke: the binary must run and exit 0 (all five cases exit 0)
-        r = subprocess.run([out_path], capture_output=True, timeout=60)
+        try:
+            r = subprocess.run([out_path], capture_output=True, timeout=60)
+        except subprocess.TimeoutExpired:
+            ok = False
+            msg += "; run timed out (60s) -- possible divergence"
         if r.returncode != 0:
             ok = False
             msg += "; run exited %d" % r.returncode

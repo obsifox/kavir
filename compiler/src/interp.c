@@ -49,7 +49,8 @@ static long long g_iregs[KAVIR_MAX_CALL_DEPTH][KAVIR_INTERP_MAX_REGS];
 static int g_quiet = 0;
 
 /* M4.1: optional per-run step budget for fuzz harnesses; 0 = unlimited
- * (the CLI default). See kavir.h interp_set_step_limit. */
+ * (the CLI default). Expiry is the KAVIR_INTERP_STEP_LIMIT return
+ * status. See kavir.h interp_set_step_limit. */
 static unsigned long g_step_limit = 0;
 static unsigned long g_steps;
 
@@ -126,7 +127,6 @@ int interp_run(const IrModule *mod, InterpResult *out) {
     out->trapped = 0;
     out->value = 0;
     out->trap_msg[0] = '\0';
-    out->step_limited = 0;
     g_steps = 0;
 
     for (i = 0; i < mod->nfns; i++) {
@@ -154,10 +154,10 @@ int interp_run(const IrModule *mod, InterpResult *out) {
         const IrInst *in;
 
         if (g_step_limit != 0 && ++g_steps > g_step_limit) {
-            /* legal divergent program (harness budget only): stop
-             * without a trap and without any observable output */
-            out->step_limited = 1;
-            return 0;
+            /* legal divergent program (harness budget only): stop as
+             * the explicit STEP_LIMIT status -- no trap, no output,
+             * no value */
+            return KAVIR_INTERP_STEP_LIMIT;
         }
         if (sp < 0) break; /* returned from the outermost frame */
         fn = &mod->fns[g_frames[sp].fn_idx];

@@ -3,10 +3,10 @@
 # Rule 1 (amendment b): EVERY codegen test compares the ELF behaviour
 #   against the IR interpreter on the same program; a mismatch fails.
 # Rule 2 (ADR-007 oracle rule): expected values are INDEPENDENT of the
-#   compiler — hand-written constants in this file (never derived from
+#   compiler -- hand-written constants in this file (never derived from
 #   kavir's own output). M2 adds a third, separately-computed source
 #   (tests/reference.py) for arithmetic cases.
-# NOTE: no `set -e` — programs under test legitimately exit nonzero;
+# NOTE: no `set -e` -- programs under test legitimately exit nonzero;
 # every failure path below handles errors explicitly.
 cd "$(dirname "$0")/.."
 
@@ -20,13 +20,18 @@ die() { printf 'FAIL %s\n' "$1"; printf 'M1.1 conformance: %d checks passed befo
 # check_program <fixture> <expected-exit> <name>
 # The expected value below is an INDEPENDENT constant, and BOTH the ELF
 # program and the interpreter must produce exactly it.
+# M4.1 follow-up: every exec is wrapped in coreutils timeout(1); exit
+# code 124 means the timeout fired and is reported with a clear message
+# instead of hanging the suite.
 check_program() {
     fixture="$1"; expect="$2"; name="$3"
 
-    ref=$(./kavir interp "$fixture" 2>/dev/null; echo $?)
+    ref=$(timeout 60 ./kavir interp "$fixture" 2>/dev/null; echo $?)
+    if [ "$ref" = "124" ]; then die "$name: interpreter timed out (60s)"; fi
     ./kavir build "$fixture" -o /tmp/kavir_test_prog >/dev/null 2>&1 \
         || die "$name: build failed"
-    got=$( /tmp/kavir_test_prog; echo $? )
+    got=$( timeout 60 /tmp/kavir_test_prog; echo $? )
+    if [ "$got" = "124" ]; then die "$name: ELF run timed out (60s)"; fi
 
     if [ "$got" = "$expect" ] && [ "$ref" = "$expect" ] && [ "$got" = "$ref" ]; then
         ok "$name (elf=$got interp=$ref want=$expect)"
@@ -37,11 +42,14 @@ check_program() {
 
 # expect_error <fixture> <name> <regex>
 # The diagnostic must (a) exist, (b) carry a file:line:col span, and
-# (c) match the specific pattern for THIS case — generic "some error"
+# (c) match the specific pattern for THIS case -- generic "some error"
 # acceptance is not enough (M1.1 review item).
 expect_error() {
     fixture="$1"; name="$2"; pattern="$3"
-    if ./kavir build "$fixture" -o /tmp/kavir_test_err 2>/tmp/kavir_test_errlog; then
+    timeout 120 ./kavir build "$fixture" -o /tmp/kavir_test_err 2>/tmp/kavir_test_errlog
+    rc=$?
+    if [ "$rc" = "124" ]; then die "$name: build timed out (120s)"; fi
+    if [ "$rc" = "0" ]; then
         die "$name: expected compile error, got success"
     fi
     if grep -qE ':[0-9]+:[0-9]+:' /tmp/kavir_test_errlog \

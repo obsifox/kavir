@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""scripts/gen_m3_fixtures.py — writes the M3 conformance fixtures into
+"""scripts/gen_m3_fixtures.py -- writes the M3 conformance fixtures into
 tests/cases_m3/ (three-way cases, trap cases, negative cases). Idempotent:
 re-running overwrites the same deterministic content."""
 import os

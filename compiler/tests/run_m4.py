@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""tests/run_m4.py — M4 three-way conformance runner (ADR-007 decision 2,
+"""tests/run_m4.py -- M4 three-way conformance runner (ADR-007 decision 2,
 ADR-008 decision 8, ADR-011).
 
 For every case in tests/cases_m4/:
@@ -33,12 +33,19 @@ import reference  # noqa: E402  (the independent oracle)
 
 
 def run(cmd, **kw):
-    return subprocess.run(cmd, capture_output=True, timeout=120, **kw)
+    # M4.1 follow-up: a hang must never escape as a raw traceback; it is
+    # reported as a clear TIMEOUT line and the case is failed instead.
+    try:
+        return subprocess.run(cmd, capture_output=True, timeout=120, **kw)
+    except subprocess.TimeoutExpired:
+        print("TIMEOUT (120s): %s did not finish; reported as a failure "
+              "and the suite continues" % " ".join(map(str, cmd)))
+        return None
 
 
 def main():
     if not os.path.exists(os.path.join(ROOT, "kavir")):
-        sys.exit("run_m4: ./kavir missing — run 'make' first")
+        sys.exit("run_m4: ./kavir missing -- run 'make' first")
 
     names = sorted(n for n in os.listdir(CASES) if n.endswith(".k"))
     if not names:
@@ -66,6 +73,10 @@ def main():
                 pass
             r = run([os.path.join(ROOT, "kavir"), "build", path,
                      "-o", out_path])
+            if r is None:
+                print("FAIL %s (build timed out)" % case)
+                failed += 1
+                continue
             log = r.stderr.decode("utf-8", "replace")
             ok = (r.returncode == 1
                   and re.search(r":[0-9]+:[0-9]+:", log) is not None
@@ -91,16 +102,28 @@ def main():
             continue
 
         r = run([os.path.join(ROOT, "kavir"), "interp", path])
+        if r is None:
+            print("FAIL %s (interpreter timed out)" % case)
+            failed += 1
+            continue
         i_out, i_err, i_rc = r.stdout, r.stderr, r.returncode
 
         b = run([os.path.join(ROOT, "kavir"), "build", path,
                  "-o", "/tmp/kavir_m4_prog"])
+        if b is None:
+            print("FAIL %s (build timed out)" % case)
+            failed += 1
+            continue
         if b.returncode != 0:
             print("FAIL %s (build failed: %s)"
                   % (case, b.stderr.decode("utf-8", "replace").strip()[:200]))
             failed += 1
             continue
         e = run(["/tmp/kavir_m4_prog"])
+        if e is None:
+            print("FAIL %s (ELF run timed out)" % case)
+            failed += 1
+            continue
         e_out, e_err, e_rc = e.stdout, e.stderr, e.returncode
 
         if (e_out, e_err, e_rc) == (exp_out, exp_err, exp_rc) and \

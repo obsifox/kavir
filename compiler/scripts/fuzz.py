@@ -10,7 +10,7 @@ Two modes, both grammar-aware:
       prints, if/else nesting) and runs the FULL three-way differential
       check per accepted program: ELF behaviour == IR interpreter ==
       tests/reference.py expectation (stdout bytes, stderr bytes, exit
-      code — traps included). A compile-rejected input only has to not
+      code -- traps included). A compile-rejected input only has to not
       crash the compiler. Mismatches and crashes are saved as
       fuzz-mismatch-*.k / fuzz-crash-*.k.
 
@@ -20,7 +20,7 @@ Two modes, both grammar-aware:
       or hang is a failure; clean compile errors are the expected
       outcome for garbage.
 
-Known limits — stated honestly every time (user rule: never "fuzz
+Known limits -- stated honestly every time (user rule: never "fuzz
 clean"):
   - diff mode runs the plain -O2 build: memory-safety coverage comes
     from --mode asan and the libFuzzer harness, not from diff mode;
@@ -102,7 +102,7 @@ CMP_OPS = [" < ", " <= ", " > ", " >= ", " == ", " != "]
 
 
 def gen_expr(rng, depth, scope):
-    """Arithmetic only — comparisons live ONLY at condition level
+    """Arithmetic only -- comparisons live ONLY at condition level
     (gen_cond), because the language parses them non-associatively."""
     if depth <= 0 or rng.random() < 0.25:
         return gen_leaf(rng, scope)
@@ -117,7 +117,7 @@ def gen_expr(rng, depth, scope):
 
 def gen_cond(rng, depth, scope):
     """A condition: a bare expression (nonzero = true) or exactly ONE
-    comparison (never chained — the parser rejects chains)."""
+    comparison (never chained -- the parser rejects chains)."""
     a = gen_expr(rng, depth, scope)
     if rng.random() < 0.6:
         return a + rng.choice(CMP_OPS) + gen_expr(rng, depth, scope)
@@ -352,7 +352,7 @@ def load_seeds():
 def mode_diff(rng, n_iters, budget_s):
     compiler = os.path.join(ROOT, "kavir")
     if not os.path.exists(compiler):
-        sys.exit("fuzz: %s missing — run 'make' first" % compiler)
+        sys.exit("fuzz: %s missing -- run 'make' first" % compiler)
     problems = n_checked = n_rejected = 0
     t0 = time.time()
     for i in range(n_iters):
@@ -406,11 +406,13 @@ def mode_diff(rng, n_iters, budget_s):
                       % (e.returncode, e.stdout[:60], e.stderr[:100]))
                 print("  interp  rc=%d out=%r err=%r"
                       % (r.returncode, r.stdout[:60], r.stderr[:100]))
-        except subprocess.TimeoutExpired:
+        except subprocess.TimeoutExpired as te:
             problems += 1
             keep = "fuzz-crash-timeout-%d.k" % i
             open(keep, "w", encoding="utf-8").write(src)
-            print("TIMEOUT iter=%d saved=%s" % (i, keep))
+            stage = " ".join(map(str, te.cmd[:2])) if te.cmd else "?"
+            print("TIMEOUT iter=%d stage='%s' (10s budget) saved=%s"
+                  % (i, stage, keep))
         finally:
             os.unlink(path)
     return n_checked, n_rejected, problems, time.time() - t0
@@ -419,7 +421,7 @@ def mode_diff(rng, n_iters, budget_s):
 def mode_asan(rng, n_iters, budget_s, seeds):
     compiler = os.path.join(ROOT, "kavir-asan")
     if not os.path.exists(compiler):
-        sys.exit("fuzz: %s missing — run 'make kavir-asan' first" % compiler)
+        sys.exit("fuzz: %s missing -- run 'make kavir-asan' first" % compiler)
     env = dict(os.environ)
     env["ASAN_OPTIONS"] = "detect_leaks=0"
     modes = (["build", "-o", "/tmp/kavir_fuzz_out"], ["interp"], ["dump-ir"])
@@ -447,7 +449,7 @@ def mode_asan(rng, n_iters, budget_s, seeds):
                     bad += 1
                     keep = "fuzz-crash-timeout-%d.txt" % i
                     open(keep, "wb").write(src)
-                    print("TIMEOUT iter=%d mode=%s saved=%s"
+                    print("TIMEOUT iter=%d mode=%s (10s budget) saved=%s"
                           % (i, mode[0], keep))
                     break
                 err = r.stderr.decode("utf-8", "replace")

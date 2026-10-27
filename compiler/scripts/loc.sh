@@ -33,33 +33,33 @@ if [ -f fuzz/fuzz_frontend.c ]; then
     printf '%8d  Harness C LOC  (fuzz/fuzz_frontend.c)\n' \
         "$(wc -l < fuzz/fuzz_frontend.c)"
 fi
-printf '%8d  Tooling PY LOC (tests/reference.py — independent oracle)\n' \
+printf '%8d  Tooling PY LOC (tests/reference.py -- independent oracle)\n' \
     "$(wc -l < tests/reference.py)"
-printf '%8d  Tooling PY LOC (tests/run_m2.py — M2 runner)\n' \
+printf '%8d  Tooling PY LOC (tests/run_m2.py -- M2 runner)\n' \
     "$(wc -l < tests/run_m2.py)"
-printf '%8d  Tooling PY LOC (tests/run_m3.py — M3 runner)\n' \
+printf '%8d  Tooling PY LOC (tests/run_m3.py -- M3 runner)\n' \
     "$(wc -l < tests/run_m3.py)"
 if [ -f tests/run_m31.py ]; then
-    printf '%8d  Tooling PY LOC (tests/run_m31.py — M3.1 ELF checks)\n' \
+    printf '%8d  Tooling PY LOC (tests/run_m31.py -- M3.1 ELF checks)\n' \
         "$(wc -l < tests/run_m31.py)"
 fi
-printf '%8d  Tooling PY LOC (tests/run_m4.py — M4 runner)\n' \
+printf '%8d  Tooling PY LOC (tests/run_m4.py -- M4 runner)\n' \
     "$(wc -l < tests/run_m4.py)"
 if [ -f tests/run_m4_elf.py ]; then
-    printf '%8d  Tooling PY LOC (tests/run_m4_elf.py — M4 ELF checks)\n' \
+    printf '%8d  Tooling PY LOC (tests/run_m4_elf.py -- M4 ELF checks)\n' \
         "$(wc -l < tests/run_m4_elf.py)"
 fi
-printf '%8d  Tooling PY LOC (scripts/gen_m4_fixtures.py — M4 fixtures)\n' \
+printf '%8d  Tooling PY LOC (scripts/gen_m4_fixtures.py -- M4 fixtures)\n' \
     "$(wc -l < scripts/gen_m4_fixtures.py)"
-printf '%8d  Tooling PY LOC (scripts/gen_m3_fixtures.py — M3 fixtures)\n' \
+printf '%8d  Tooling PY LOC (scripts/gen_m3_fixtures.py -- M3 fixtures)\n' \
     "$(wc -l < scripts/gen_m3_fixtures.py)"
 if [ -f scripts/gen_m31_fixtures.py ]; then
-    printf '%8d  Tooling PY LOC (scripts/gen_m31_fixtures.py — M3.1 fixtures)\n' \
+    printf '%8d  Tooling PY LOC (scripts/gen_m31_fixtures.py -- M3.1 fixtures)\n' \
         "$(wc -l < scripts/gen_m31_fixtures.py)"
 fi
-printf '%8d  Tooling PY LOC (scripts/fuzz.py — fuzz driver)\n' \
+printf '%8d  Tooling PY LOC (scripts/fuzz.py -- fuzz driver)\n' \
     "$(wc -l < scripts/fuzz.py)"
-printf '%8d  Suite SH LOC   (tests/run.sh — M1.1 suite)\n' \
+printf '%8d  Suite SH LOC   (tests/run.sh -- M1.1 suite)\n' \
     "$(wc -l < tests/run.sh)"
 printf '     %4d fixtures  (tests/fixtures/*.k, M1 boundary corpus)\n' \
     "$(ls tests/fixtures/*.k | wc -l)"

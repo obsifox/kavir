@@ -35,7 +35,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
     unsigned char *buf;
     InterpResult res;
     char errbuf[KAVIR_MAX_ERR];
-    int n, out_size = 0, entry_off = 0;
+    int st, n, out_size = 0, entry_off = 0;
 
     if (size == 0 || size > 2048) return 0; /* cap: huge inputs only hit
                                                the token-count limit */
@@ -54,19 +54,21 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
                     if (ir_build("fuzz", &prog, &mod) == 0) {
                         mod.file = "fuzz";
                         interp_set_quiet(1);
-                        /* M4.1: coverage-guided mutation can legally turn
-                         * a bounded loop into a divergent one; the budget
-                         * expires as res.step_limited (never a trap), and
-                         * the harness skips the remaining stages so the
-                         * campaign can continue. */
                         interp_set_step_limit(1000000UL);
-                        if (interp_run(&mod, &res) != 0) {
-                            /* internal interpreter error: invalid state,
-                             * must never happen on a checked program */
+                        /* M4.1: coverage-guided mutation can legally
+                         * turn a bounded loop into a divergent one; the
+                         * budget expires as the explicit
+                         * KAVIR_INTERP_STEP_LIMIT status (never a
+                         * trap), and the harness skips the remaining
+                         * stages so the campaign can continue. */
+                        st = interp_run(&mod, &res);
+                        if (st == KAVIR_INTERP_INTERNAL) {
+                            /* invalid interpreter state: must never
+                             * happen on a checked program */
                             abort();
                         }
                         buf = (unsigned char *)malloc(KAVIR_MAX_CODE);
-                        if (buf != NULL && !res.step_limited) {
+                        if (buf != NULL && st == KAVIR_INTERP_OK) {
                             errbuf[0] = '\0';
                             (void)target_x86_64_linux_emit(
                                 &mod, buf, KAVIR_MAX_CODE,

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""tests/run_m4_elf.py — M4 ELF structural checks (ADR-011 alignment).
+"""tests/run_m4_elf.py -- M4 ELF structural checks (ADR-011 alignment).
 
 run_m2/run_m3/run_m4 pin BEHAVIOUR byte for byte; this script pins the
 ELF-side STRUCTURE of ADR-011's stack discipline, which behaviour alone
-cannot observe (a misaligned RSP would not crash this backend — no
+cannot observe (a misaligned RSP would not crash this backend -- no
 aligned SSE instructions are emitted):
 
   1. Every `sub rsp, imm` / `add rsp, imm` in the emitted image is a
@@ -66,7 +66,7 @@ def scan(buf):
 def main():
     kavir = os.path.join(ROOT, "kavir")
     if not os.path.exists(kavir):
-        sys.exit("run_m4_elf: ./kavir missing — run 'make' first")
+        sys.exit("run_m4_elf: ./kavir missing -- run 'make' first")
 
     passed = failed = 0
     for case, want_rc, min_sub16 in CASES:
@@ -77,8 +77,18 @@ def main():
             os.unlink(out_path)
         except OSError:
             pass
-        b = subprocess.run([kavir, "build", path, "-o", out_path],
-                           capture_output=True, timeout=120)
+        try:
+            b = subprocess.run([kavir, "build", path, "-o", out_path],
+                               capture_output=True, timeout=120)
+        except subprocess.TimeoutExpired:
+            print("TIMEOUT %s: build exceeded 120s (compiler hang?); "
+                  "reported FAIL" % case)
+            failed += 1
+            try:
+                os.unlink(out_path)
+            except OSError:
+                pass
+            continue
         if b.returncode != 0:
             print("FAIL %s (build: %s)" % (case, b.stderr.decode()[:200]))
             failed += 1
@@ -95,7 +105,11 @@ def main():
             msg += "; expected >=%d `sub rsp,16` sites, got %d" % (
                 min_sub16, sub16)
 
-        r = subprocess.run([out_path], capture_output=True, timeout=120)
+        try:
+            r = subprocess.run([out_path], capture_output=True, timeout=120)
+        except subprocess.TimeoutExpired:
+            ok = False
+            msg += "; run timed out (120s) -- possible divergence"
         if r.returncode != want_rc:
             ok = False
             msg += "; run exited %d (want %d)" % (r.returncode, want_rc)

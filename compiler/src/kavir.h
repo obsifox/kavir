@@ -326,18 +326,32 @@ typedef struct {
 
 /* ---------------- interpreter ---------------- */
 
+/* interp_run STATUS CODES (the return value is a distinct status, not
+ * a value/flag pair):
+ *   KAVIR_INTERP_OK          complete run; out holds the value or trap
+ *   KAVIR_INTERP_STEP_LIMIT  the optional step budget expired: no
+ *                            value, no output, NOT a trap; reachable
+ *                            ONLY when a limit was set via
+ *                            interp_set_step_limit, i.e. by fuzz
+ *                            harnesses (the CLI never sets one)
+ *   KAVIR_INTERP_INTERNAL    invalid internal state; must never happen
+ *                            on a checked program */
+#define KAVIR_INTERP_OK 0
+#define KAVIR_INTERP_STEP_LIMIT 1
+#define KAVIR_INTERP_INTERNAL (-1)
+
 typedef struct {
     int trapped;        /* 1 = trap occurred (trap_msg filled) */
     long long value;    /* main's return value when not trapped */
     char trap_msg[256]; /* full diagnostic line, trailing '\n' included */
-    int step_limited;   /* 1 = the optional step budget expired (harness
-                         * only; a legal divergent program, NOT a trap) */
 } InterpResult;
 
-/* Executes main. Returns 0 and fills out (value or trap) on a complete
- * run; returns -1 only on internal errors. Traps do NOT exit the
- * process (the driver maps them to KAVIR_TRAP_EXIT_CODE; the fuzz
- * harness inspects them in-process). */
+/* Executes main. Returns KAVIR_INTERP_OK and fills out (value or trap)
+ * on a complete run, KAVIR_INTERP_STEP_LIMIT when the optional step
+ * budget expired (harness-only status; out stays at its zeroed initial
+ * state), KAVIR_INTERP_INTERNAL only on internal errors. Traps do NOT
+ * exit the process (the driver maps them to KAVIR_TRAP_EXIT_CODE; the
+ * fuzz harness inspects them in-process). */
 int interp_run(const IrModule *mod, InterpResult *out);
 
 /* Discard print output (fuzz harnesses); trap/value behaviour unchanged. */
@@ -346,8 +360,10 @@ void interp_set_quiet(int quiet);
 /* Optional per-run step budget (counted IR instructions). 0 = unlimited
  * (the default; the CLI always runs unlimited). M4.1: the libFuzzer
  * harness sets a budget because coverage-guided mutation can legally
- * turn a bounded loop into a divergent one; the budget expires as
- * out->step_limited = 1 (never a trap, never any output). */
+ * turn a bounded loop into a divergent one; expiry is reported as the
+ * explicit KAVIR_INTERP_STEP_LIMIT return status (never a trap, never
+ * any output). HARNESS-ONLY: no CLI or conformance path sets a limit,
+ * and the three-way contract never observes this status. */
 void interp_set_step_limit(unsigned long max_steps);
 
 /* ---------------- diagnostics ---------------- */

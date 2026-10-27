@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""scripts/gen_m31_fixtures.py — M3.1 fixture generator (deterministic).
+"""scripts/gen_m31_fixtures.py -- M3.1 fixture generator (deterministic).
 
 Regenerates the M3.1 fixtures in tests/cases_m3/:
 

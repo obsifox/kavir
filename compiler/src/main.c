@@ -132,7 +132,9 @@ static int cmd_interp(const char *in_path) {
     static IrModule mod;
     InterpResult r;
     if (frontend(in_path, &mod) != 0) return 1;
-    if (interp_run(&mod, &r) != 0) return 1;
+    /* the CLI never sets a step limit, so only the internal-error
+     * status can appear here */
+    if (interp_run(&mod, &r) != KAVIR_INTERP_OK) return 1;
     if (r.trapped) {
         /* identical bytes to the compiled program's trap line */
         fputs(r.trap_msg, stderr);

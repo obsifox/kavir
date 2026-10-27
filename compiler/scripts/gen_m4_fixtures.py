@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""scripts/gen_m4_fixtures.py — M4 fixture generator (deterministic).
+"""scripts/gen_m4_fixtures.py -- M4 fixture generator (deterministic).
 
 Emits the aggregate-ABI and semantics fixtures into tests/cases_m4/:
 
@@ -258,7 +258,7 @@ fn main() -> i32 {
 M4_STRUCT_BASIC = HEADER + STRUCTS + """\
 // Struct value semantics: field read, field assignment through
 // 'let mut', whole-value assignment, and copy-on-binding (aliasing is
-// never observable — ADR-011).
+// never observable -- ADR-011).
 fn main() -> i32 {
     let mut p: Point = Point { x: 3, y: 4 };
     print(p.x + p.y);

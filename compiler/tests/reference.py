@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""tests/reference.py — INDEPENDENT reference evaluator for the Kavir
+"""tests/reference.py -- INDEPENDENT reference evaluator for the Kavir
 surface through M3 (ADR-007 decision 2; ADR-008 decisions 1-4, 8;
 ADR-010 decisions 1-9 for calls/recursion).
 
@@ -41,7 +41,7 @@ CLI:  python3 tests/reference.py <file.k>
       prints one JSON line: {"stdout": b64, "stderr": b64, "exit": n}
 
 Module: expected_for(path) -> (stdout: bytes, stderr: bytes, exit: int)
-Raises ReferenceError on anything it cannot parse — for programs the
+Raises ReferenceError on anything it cannot parse -- for programs the
 compiler accepted that is a FINDING, not a nuisance.
 
 Deep recursion runs on a dedicated thread with a large stack so the
@@ -258,7 +258,7 @@ class Parser:
             self.next()
             return ("int", t.val, t.line, t.col)
         if t.kind == "Option":
-            # Option.None | Option.Some(expr) — M4
+            # Option.None | Option.Some(expr) -- M4
             at = self.next()
             self.expect(".", "'.'")
             tag = self.expect("IDENT", "None or Some")
@@ -272,7 +272,7 @@ class Parser:
             raise ReferenceError("%s:%d:%d: expected None or Some"
                                  % (self.path, tag.line, tag.col))
         if t.kind == "match":
-            # match expr { pattern => body, ... } — arms yield i32 (M4)
+            # match expr { pattern => body, ... } -- arms yield i32 (M4)
             at = self.next()
             saved = self.no_lit
             self.no_lit = True
@@ -416,7 +416,7 @@ class Parser:
         return stmts
 
     def typeann(self):
-        # type := 'i32' | IDENT | 'Option' '[' type ']' — parsed and
+        # type := 'i32' | IDENT | 'Option' '[' type ']' -- parsed and
         # DISCARDED: the oracle evaluates source-level values, not words
         t = self.peek()
         if t.kind == "i32":
@@ -783,7 +783,7 @@ class Evaluator:
         if self.depth + 1 >= CALL_DEPTH_LIMIT:
             # the callee would be frame CALL_DEPTH_LIMIT+1 (depth index
             # CALL_DEPTH_LIMIT): frame indices 0..CALL_DEPTH_LIMIT-1 are
-            # legal — identical to the interpreter's frame-stack check
+            # legal -- identical to the interpreter's frame-stack check
             # and the ELF's prologue check (ADR-010 section 3b)
             self.trap("call depth limit exceeded (%d) in fn '%s'"
                       % (CALL_DEPTH_LIMIT, name), dline, dcol)
@@ -800,7 +800,7 @@ class Evaluator:
     def run_stmts(self, stmts, env):
         # NOTE: ReturnSignal propagates UNCAUGHT through nested statement
         # lists (if/while bodies) and is caught only at the call boundary
-        # (in call()) or at the top level around main — catching it here
+        # (in call()) or at the top level around main -- catching it here
         # would swallow early returns and corrupt control flow.
         for st in stmts:
             k = st[0]
