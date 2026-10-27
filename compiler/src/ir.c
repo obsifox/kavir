@@ -1,28 +1,28 @@
-/* ir.c — Kavir IR construction and text dump (M3 subset).
+/* ir.c -- Kavir IR construction and text dump (M3 subset).
  *
  * M3 IR is a flat instruction list per function over virtual registers
- * (ADR-008 decision 5; extended additively in M2 and M3 — the format is
+ * (ADR-008 decision 5; extended additively in M2 and M3 -- the format is
  * internal and never persisted). Opcodes:
  *
- *   IR_CONST    dest, imm          — materialize an i32 immediate
- *   IR_RET      src1               — return a vreg from the function
- *   IR_ADD/SUB/MUL/DIV/REM d,s1,s2 — i32 arithmetic (trap on overflow,
+ *   IR_CONST    dest, imm          -- materialize an i32 immediate
+ *   IR_RET      src1               -- return a vreg from the function
+ *   IR_ADD/SUB/MUL/DIV/REM d,s1,s2 -- i32 arithmetic (trap on overflow,
  *                                    division by zero, INT_MIN over -1)
- *   IR_PRINT    dest               — print a vreg as decimal
- *   IR_PRINT_STR str_idx           — print string-table bytes
- *   IR_JMP      target             — unconditional jump
- *   IR_JMPZ     src1, target       — jump when vreg == 0
- *   IR_LT/LE/GT/GE/EQ/NE d,s1,s2   — comparison, yields 1/0 (M3)
- *   IR_COPY     dest, src1         — vreg <- vreg (lets, assigns) (M3)
- *   IR_CALL     dest, fn_idx, args — call, result into dest (M3)
+ *   IR_PRINT    dest               -- print a vreg as decimal
+ *   IR_PRINT_STR str_idx           -- print string-table bytes
+ *   IR_JMP      target             -- unconditional jump
+ *   IR_JMPZ     src1, target       -- jump when vreg == 0
+ *   IR_LT/LE/GT/GE/EQ/NE d,s1,s2   -- comparison, yields 1/0 (M3)
+ *   IR_COPY     dest, src1         -- vreg <- vreg (lets, assigns) (M3)
+ *   IR_CALL     dest, fn_idx, args -- call, result into dest (M3)
  *
  * Variables map to fixed vregs: params first (0..nparams-1), then lets
- * in declaration order — the checker guarantees every reference
+ * in declaration order -- the checker guarantees every reference
  * resolves; the builder keeps its own name table as defense in depth.
  *
  * Evaluation order is fixed by construction: left operand, then right
  * operand, then the operation; call arguments left-to-right, then the
- * call (ADR-008 decision 2; ADR-010 decision 1) — observable through
+ * call (ADR-008 decision 2; ADR-010 decision 1) -- observable through
  * traps between prints.
  */
 #include "kavir.h"
@@ -36,9 +36,9 @@ typedef struct {
     const char *file;
     /* variable name -> vreg (params first 0..nparams-1, then lets in
      * declaration order at whatever vreg numbers they claimed); the
-     * checker guarantees every lookup succeeds — this table is defense
+     * checker guarantees every lookup succeeds -- this table is defense
      * in depth and an internal-error source if violated. NOTE: the
-     * vnames[] INDEX is not the vreg number — lets allocate vregs after
+     * vnames[] INDEX is not the vreg number -- lets allocate vregs after
      * expression temporaries, so the mapping is explicit. */
     char vnames[KAVIR_MAX_VARS][KAVIR_MAX_NAME];
     int vnums[KAVIR_MAX_VARS];
@@ -692,14 +692,12 @@ static int ir_build_fn(const char *file, const Fn *fn, const Program *prog,
     out->line = fn->line;
     out->col = fn->col;
     {
-        int base = 0;
         for (k = 0; k < fn->nparams; k++) {
             int w = ty_words(prog, fn->param_ty[k]);
             out->param_words[k] = w;
             strncpy(out->param_names[k], fn->param_names[k],
                     KAVIR_MAX_NAME - 1);
             out->param_names[k][KAVIR_MAX_NAME - 1] = '\0';
-            base += w;
         }
     }
 
@@ -709,7 +707,7 @@ static int ir_build_fn(const char *file, const Fn *fn, const Program *prog,
     b.nfix = 0;
     b.file = file;
     b.prog = prog;
-    /* params claim their words first, in order — the interpreter and
+    /* params claim their words first, in order -- the interpreter and
      * the backend lay the incoming ABI values into the same bases */
     for (k = 0; k < fn->nparams; k++) {
         int w = out->param_words[k];
@@ -781,9 +779,9 @@ void ir_dump(const IrModule *mod, FILE *out) {
         fprintf(out, ") -> %s {\n", fn->ret_is_i32 ? "i32" : "?");
         for (k = 0; k < fn->ninsts; k++) {
             const IrInst *in = &fn->insts[k];
-            int l;
-            for (l = 0; l < fn->nlabels; l++)
-                if (fn->labels[l] == k) fprintf(out, "  L%d:\n", l);
+            int li;
+            for (li = 0; li < fn->nlabels; li++)
+                if (fn->labels[li] == k) fprintf(out, "  L%d:\n", li);
             switch (in->op) {
             case IR_CONST:
                 fprintf(out, "  %%r%d = const %lld\n", in->dest, in->val);

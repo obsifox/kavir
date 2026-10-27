@@ -1,4 +1,4 @@
-/* fuzz_frontend.c — libFuzzer harness for the Kavir M2 pipeline
+/* fuzz_frontend.c -- libFuzzer harness for the Kavir M2 pipeline
  * (ADR-005 v3 amendment b; ADR-008 decision 8).
  *
  * libFuzzer is shipped with clang only (gcc does not provide it):
@@ -6,7 +6,7 @@
  *   make kavir-libfuzzer          (errors out with guidance if no clang)
  *   make fuzz-libfuzzer           (runs it against corpus/ for 60s)
  *
- * Equivalent manual invocation (note: main.c is EXCLUDED — libFuzzer
+ * Equivalent manual invocation (note: main.c is EXCLUDED -- libFuzzer
  * provides its own main):
  *   clang -std=c17 -g -O1 -fsanitize=fuzzer,address,undefined \
  *     -fno-sanitize-recover=all -fno-omit-frame-pointer -Wall -Wextra \
@@ -54,13 +54,19 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
                     if (ir_build("fuzz", &prog, &mod) == 0) {
                         mod.file = "fuzz";
                         interp_set_quiet(1);
+                        /* M4.1: coverage-guided mutation can legally turn
+                         * a bounded loop into a divergent one; the budget
+                         * expires as res.step_limited (never a trap), and
+                         * the harness skips the remaining stages so the
+                         * campaign can continue. */
+                        interp_set_step_limit(1000000UL);
                         if (interp_run(&mod, &res) != 0) {
                             /* internal interpreter error: invalid state,
                              * must never happen on a checked program */
                             abort();
                         }
                         buf = (unsigned char *)malloc(KAVIR_MAX_CODE);
-                        if (buf != NULL) {
+                        if (buf != NULL && !res.step_limited) {
                             errbuf[0] = '\0';
                             (void)target_x86_64_linux_emit(
                                 &mod, buf, KAVIR_MAX_CODE,

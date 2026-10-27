@@ -1,8 +1,8 @@
-/* check.c — Kavir semantic checker (M4).
+/* check.c -- Kavir semantic checker (M4).
  *
  * M4 additions over M3 (ADR-004 v0.1.0 subset; ADR-011 decisions):
  *   - type declarations: struct fields and enum variants (payloads are
- *     i32 or previously-nameable aggregate types — everything is a
+ *     i32 or previously-nameable aggregate types -- everything is a
  *     tuple of 32-bit words); C layout offsets computed here; recursive
  *     types rejected; Option[T] monomorphizations synthesized on
  *     demand (T inferred from the expected type at construction);
@@ -16,7 +16,7 @@
  *   - enum constructors Type.Variant(e, ...); match with
  *     exhaustiveness (every variant covered, or a final _), duplicate
  *     patterns rejected, arm-local bindings that may not shadow outer
- *     variables (two arms may reuse a name — bindings vanish with the
+ *     variables (two arms may reuse a name -- bindings vanish with the
  *     arm);
  *   - match arm bodies are i32 in M4 (the only aggregate deconstruction
  *     is pattern binding); print requires i32.
@@ -31,7 +31,7 @@
 #define KAVIR_INT32_MIN_AS_ULL 2147483648ULL /* = (unsigned)INT32_MIN */
 
 /* Flat per-function scope. vreg_base is the first of nwords
- * consecutive vregs (params first, then lets in declaration order) —
+ * consecutive vregs (params first, then lets in declaration order) --
  * ir.c rebuilds the identical mapping independently. */
 typedef struct {
     char name[KAVIR_MAX_NAME];
@@ -612,7 +612,7 @@ static int expr_check(const char *file, Program *prog, int eidx,
                 }
                 wild_seen = 1;
             } else if (arm->is_none) {
-                /* Option.None — requires an Option scrutinee */
+                /* Option.None -- requires an Option scrutinee */
                 if (!is_option_ty(prog, st)) {
                     kavir_error(file, arm->line, arm->col,
                                 "Option.None pattern requires an Option "
@@ -648,21 +648,21 @@ static int expr_check(const char *file, Program *prog, int eidx,
                 arm->variant = 1;
                 arm->pat_ty = st;
                 {
-                    int save_vars = sc->nvars;
-                    int bt;
+                    int some_save = sc->nvars;
+                    int some_bt;
                     for (j = 0; j < arm->nbinds; j++) {
                         scope_add(file, sc, arm->bind_names[j], 0, 0,
                                   prog, arm->bind_ty[j], arm->line,
                                   arm->col);
                     }
-                    bt = expr_check(file, prog, arm->body, sc,
-                                    KAVIR_TY_I32);
-                    sc->nvars = save_vars;
-                    if (bt < 0) return -1;
-                    if (bt != KAVIR_TY_I32) {
+                    some_bt = expr_check(file, prog, arm->body, sc,
+                                         KAVIR_TY_I32);
+                    sc->nvars = some_save;
+                    if (some_bt < 0) return -1;
+                    if (some_bt != KAVIR_TY_I32) {
                         kavir_error(file, arm->line, arm->col,
                                     "match arm bodies must be i32 (got "
-                                    "'%s')", ty_name(prog, bt));
+                                    "'%s')", ty_name(prog, some_bt));
                         return -1;
                     }
                 }
@@ -726,13 +726,13 @@ static int expr_check(const char *file, Program *prog, int eidx,
                 continue;
             }
             {
-                int bt = expr_check(file, prog, arm->body, sc,
-                                    KAVIR_TY_I32);
-                if (bt < 0) return -1;
-                if (bt != KAVIR_TY_I32) {
+                int body_bt = expr_check(file, prog, arm->body, sc,
+                                         KAVIR_TY_I32);
+                if (body_bt < 0) return -1;
+                if (body_bt != KAVIR_TY_I32) {
                     kavir_error(file, arm->line, arm->col,
                                 "match arm bodies must be i32 (got '%s')",
-                                ty_name(prog, bt));
+                                ty_name(prog, body_bt));
                     return -1;
                 }
             }
@@ -892,7 +892,7 @@ int check(const char *file, const Program *prog) {
     Program *mprog = (Program *)prog; /* annotation writes (ty fields) */
     int i, j;
 
-    /* pass 0a: type declarations — names capitalized and unique */
+    /* pass 0a: type declarations -- names capitalized and unique */
     for (i = 0; i < prog->ntypes; i++) {
         const TypeDef *ty = &prog->types[i];
         if (ty->name[0] < 'A' || ty->name[0] > 'Z') {

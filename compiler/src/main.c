@@ -1,4 +1,4 @@
-/* main.c — kavir driver (M2).
+/* main.c -- kavir driver (M2).
  *
  * Subcommands:
  *   kavir build <in.k> -o <out>   compile to a static ELF executable
@@ -185,7 +185,7 @@ int main(int argc, char **argv) {
         }
         if (out == NULL) {
             fprintf(stderr,
-                    "kavir build: no output path given — add '-o <out>'\n"
+                    "kavir build: no output path given -- add '-o <out>'\n"
                     "       example: kavir build %s -o prog\n", in);
             return usage();
         }

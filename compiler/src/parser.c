@@ -1,6 +1,6 @@
-/* parser.c — Kavir parser (M4 subset).
+/* parser.c -- Kavir parser (M4 subset).
  *
- * Grammar (M4 — TEMPORARY, ADR-008 section 0; semantics are binding):
+ * Grammar (M4 -- TEMPORARY, ADR-008 section 0; semantics are binding):
  *   program    := (structdef | enumdef | fndef)*
  *   structdef  := "struct" UIDENT "{" fielddef ("," fielddef)* "}"
  *   fielddef   := IDENT ":" type
@@ -201,7 +201,7 @@ static int parse_unary(Parser *p) {
         return e;
     }
     if (t->kind == T_OPTION) {
-        /* Option.None | Option.Some(expr) — T is inferred by the
+        /* Option.None | Option.Some(expr) -- T is inferred by the
          * checker from the expected type (ADR-011). */
         const Token *at = advance(p);
         Expr e;
@@ -249,7 +249,7 @@ static int parse_unary(Parser *p) {
         return node;
     }
     if (t->kind == T_MATCH) {
-        /* match expr { arm, arm, ... } — arms pooled program-wide */
+        /* match expr { arm, arm, ... } -- arms pooled program-wide */
         const Token *at = advance(p);
         Expr e;
         int node, arm_start, own_arms;
@@ -478,7 +478,7 @@ static int parse_unary(Parser *p) {
             goto postfix;
         }
         if (peek(p)->kind == T_LBRACE && !p->no_lit) {
-            /* struct literal: Name { field: expr, ... } — all fields,
+            /* struct literal: Name { field: expr, ... } -- all fields,
              * in declaration order (checked later) */
             int at_line = peek(p)->line, at_col = peek(p)->col;
             char names[KAVIR_MAX_FIELDS][KAVIR_MAX_NAME];
@@ -567,7 +567,7 @@ static int parse_unary(Parser *p) {
             }
             seg = advance(p);
             if (peek(p)->kind == T_LPAREN) {
-                /* Type.Variant(payload...) constructor — legal only as
+                /* Type.Variant(payload...) constructor -- legal only as
                  * the FIRST path step after a bare type name */
                 int at_line = peek(p)->line, at_col = peek(p)->col;
                 int n = 0;
@@ -869,7 +869,7 @@ static int parse_muldiv(Parser *p) {
     }
 }
 
-/* expr := addsub (cmpop addsub)? — exactly ONE comparison level;
+/* expr := addsub (cmpop addsub)? -- exactly ONE comparison level;
  * `a < b < c` is a compile error (use parentheses). ADR-010 decision 2. */
 static int parse_expr(Parser *p) {
     int l = parse_addsub(p);
@@ -1033,7 +1033,7 @@ static int parse_block(Parser *p) {
         }
         case T_IDENT: {
             /* assignment statement: root(.field)* = expr;  (calls are
-             * NOT statements — ADR-010 decision 6; a bare struct
+             * NOT statements -- ADR-010 decision 6; a bare struct
              * literal is not a statement either) */
             const Token *id = advance(p);
             st->kind = ST_ASSIGN;

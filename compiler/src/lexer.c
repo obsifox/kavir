@@ -1,4 +1,4 @@
-/* lexer.c — Kavir lexer (M4 subset; the surface is TEMPORARY, ADR-008 §0).
+/* lexer.c -- Kavir lexer (M4 subset; the surface is TEMPORARY, ADR-008 sec. 0).
  *
  * Tokens: keywords fn/return/i32/if/else/print/let/mut/while/struct/
  * enum/match/Option, identifiers, integer literals, string literals
@@ -337,9 +337,9 @@ int lex(const char *file, const char *src, Token *toks, int max) {
         case '%': set_token(&toks[n], T_PERCENT, file, tok_line, tok_col, "%", 0); adv(&lx); n++; continue;
         default:
             kavir_error(file, tok_line, tok_col,
-                        "unexpected character '%c' (0x%02x) — not part of "
+                        "unexpected character '%c' (0x%02x) -- not part of "
                         "the language surface (syntax is temporary, "
-                        "ADR-008 §0)",
+                        "ADR-008 sec. 0)",
                         (c >= 32 && c < 127) ? c : '?', (unsigned)c);
             return -1;
         }

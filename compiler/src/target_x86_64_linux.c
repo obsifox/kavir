@@ -1,4 +1,4 @@
-/* target_x86_64_linux.c — Kavir target backend (M3).
+/* target_x86_64_linux.c -- Kavir target backend (M3).
  *
  * ADR-002 v2: custom backend, DIRECT x86-64 machine-code emission
  * through our own encoder, internal ELF writer, static ET_EXEC, no libc,
@@ -9,7 +9,7 @@
  * register choices) live in THIS file only.
  *
  * Calling convention (ADR-010, user decision 2026-10-26): System V
- * AMD64 integer subset — first 6 integer arguments in RDI, RSI, RDX,
+ * AMD64 integer subset -- first 6 integer arguments in RDI, RSI, RDX,
  * RCX, R8, R9; arguments 7+ on the caller stack (arg 7 at [rsp+0] /
  * [rbp+16] after the frame is built, right-to-left standard layout);
  * return value in EAX; RBP frame pointer; 16-byte stack alignment at
@@ -45,7 +45,7 @@
  *   - trap stubs: cold pool after all functions; each write(2,
  *     preformatted message) then jmp trap_exit -> exit_group(101)
  *   - image: ELF headers | functions | cold stubs | trap_exit | runtime
- *     | _start | rodata — ONE R+X PT_LOAD, vaddr = base + file offset
+ *     | _start | rodata -- ONE R+X PT_LOAD, vaddr = base + file offset
  */
 #include "kavir.h"
 #include <string.h>
@@ -59,7 +59,7 @@
 #define LIN_FD_STDERR 2L
 
 /* SysV integer argument registers, in order (ADR-010): RDI RSI RDX RCX
- * R8 R9 — encoded inline in emit_load_arg_reg/emit_store_arg_reg below
+ * R8 R9 -- encoded inline in emit_load_arg_reg/emit_store_arg_reg below
  * (store = opcode 89, load = opcode 8B; r8d/r9d need REX.R = 0x44;
  * ModRM reg fields: edi=7 esi=6 edx=2 ecx=1 r8d=0 r9d=1). */
 
@@ -328,7 +328,7 @@ static void emit_mov_m_r9d(Emit *e, int disp) {
 /* ---- M4 aggregate-ABI emitters (ADR-011) ---- */
 
 static void emit_mov_rr64(Emit *e, int dst, int src) {
-    /* mov r64, r64 — 89 /r with REX.W (modrm.reg field = source) */
+    /* mov r64, r64 -- 89 /r with REX.W (modrm.reg field = source) */
     unsigned rex = 0x48;
     if (src >= 8) rex |= 0x4;
     if (dst >= 8) rex |= 0x1;
@@ -349,7 +349,7 @@ static void emit_or_rax_rdx(Emit *e) {
 }
 
 static void emit_lea_r_rbp(Emit *e, int reg, int disp) {
-    /* lea r64, [rbp + disp32] — REX.W 8D /r, mod=10 rm=101 (rbp) */
+    /* lea r64, [rbp + disp32] -- REX.W 8D /r, mod=10 rm=101 (rbp) */
     unsigned rex = 0x48;
     if (reg >= 8) rex |= 0x1;
     put8(e, rex); put8(e, 0x8D);
@@ -358,25 +358,25 @@ static void emit_lea_r_rbp(Emit *e, int reg, int disp) {
 }
 
 static void emit_mov_rspoff_eax(Emit *e, int off) {
-    /* mov dword [rsp + off32], eax — 89 84 24 disp32 */
+    /* mov dword [rsp + off32], eax -- 89 84 24 disp32 */
     put8(e, 0x89); put8(e, 0x84); put8(e, 0x24);
     put32(e, (unsigned long)((unsigned)off & 0xffffffffUL));
 }
 
 static void emit_mov_mrdi_eax(Emit *e, int off) {
-    /* mov dword [rdi + off32], eax — 89 87 disp32 (hidden-ptr writes) */
+    /* mov dword [rdi + off32], eax -- 89 87 disp32 (hidden-ptr writes) */
     put8(e, 0x89); put8(e, 0x87);
     put32(e, (unsigned long)((unsigned)off & 0xffffffffUL));
 }
 
 static void emit_mov_m_rdi64(Emit *e, int disp) {
-    /* mov qword [rbp+disp32], rdi — 48 89 BD disp32 (prologue spill) */
+    /* mov qword [rbp+disp32], rdi -- 48 89 BD disp32 (prologue spill) */
     put8(e, 0x48); put8(e, 0x89); put8(e, 0xBD);
     put32(e, (unsigned long)((unsigned)disp & 0xffffffffUL));
 }
 
 static void emit_mov_rdi_m64(Emit *e, int disp) {
-    /* mov rdi, qword [rbp+disp32] — 48 8B BD disp32 (restore at ret) */
+    /* mov rdi, qword [rbp+disp32] -- 48 8B BD disp32 (restore at ret) */
     put8(e, 0x48); put8(e, 0x8B); put8(e, 0xBD);
     put32(e, (unsigned long)((unsigned)disp & 0xffffffffUL));
 }
@@ -388,13 +388,13 @@ static const int ABI_REG64[6] = { 7, 6, 2, 1, 8, 9 };
 /* r10d is the one scratch register no argument ever occupies (R10 and
  * R11 are reserved: R11D carries the hidden depth value). */
 static void emit_mov_r10d_m(Emit *e, int disp) {
-    /* mov r10d, dword [rbp+disp32] — 44 8B 95 disp32 */
+    /* mov r10d, dword [rbp+disp32] -- 44 8B 95 disp32 */
     put8(e, 0x44); put8(e, 0x8B); put8(e, 0x95);
     put32(e, (unsigned long)((unsigned)disp & 0xffffffffUL));
 }
 
 static void emit_or_rax_r10(Emit *e) {
-    /* or rax, r10 — 4C 09 D0 */
+    /* or rax, r10 -- 4C 09 D0 */
     put8(e, 0x4C); put8(e, 0x09); put8(e, 0xD0);
 }
 
@@ -416,14 +416,14 @@ static void emit_add_rsp_imm(Emit *e, int imm) {
     }
 }
 
-/* mov r32, [rbp+disp32] — reg: 0=eax 1=ecx 2=edx 6=esi 7=edi */
+/* mov r32, [rbp+disp32] -- reg: 0=eax 1=ecx 2=edx 6=esi 7=edi */
 static void emit_mov_r_m(Emit *e, int reg, int disp) {
     put8(e, 0x8B);
     put8(e, (unsigned)(0x85 | (reg << 3)));
     put32(e, (unsigned long)((unsigned)disp & 0xffffffffUL));
 }
 
-/* mov [rbp+disp32], r32 — reg: 0=eax 1=ecx 2=edx 6=esi 7=edi */
+/* mov [rbp+disp32], r32 -- reg: 0=eax 1=ecx 2=edx 6=esi 7=edi */
 static void emit_mov_m_r(Emit *e, int disp, int reg) {
     put8(e, 0x89);
     put8(e, (unsigned)(0x85 | (reg << 3)));
@@ -443,7 +443,7 @@ static void emit_sub_eax_m(Emit *e, int disp)  { put8(e, 0x2B); put8(e, 0x85); p
 static void emit_imul_eax_m(Emit *e, int disp) { put8(e, 0x0F); put8(e, 0xAF); put8(e, 0x85); put32(e, (unsigned long)((unsigned)disp & 0xffffffffUL)); }
 static void emit_cmp_eax_m(Emit *e, int disp)  { put8(e, 0x3B); put8(e, 0x85); put32(e, (unsigned long)((unsigned)disp & 0xffffffffUL)); }
 
-/* setcc al / movzx eax,al — comparison results (ADR-010 decision 2) */
+/* setcc al / movzx eax,al -- comparison results (ADR-010 decision 2) */
 static void emit_setcc_al(Emit *e, int cc) {
     put8(e, 0x0F);
     put8(e, (unsigned)cc);
@@ -469,7 +469,7 @@ static void emit_add_rdx_40(Emit *e)     { put8(e, 0x48); put8(e, 0x83); put8(e,
 static void emit_sub_rdx_rsi(Emit *e)    { put8(e, 0x48); put8(e, 0x29); put8(e, 0xF2); }
 static void emit_add_rsp_48(Emit *e)     { put8(e, 0x48); put8(e, 0x83); put8(e, 0xC4); put8(e, 0x30); }
 
-/* jcc rel32 into a (possibly forward) label — emit_jcc takes the SECOND
+/* jcc rel32 into a (possibly forward) label -- emit_jcc takes the SECOND
  * opcode byte directly (0x80+jcc code on the wire): */
 
 static void emit_jcc(Emit *e, int opcode_low, int label) {
@@ -672,7 +672,7 @@ static int gen_function(Emit *e, const char *file, const IrModule *mod,
 
     /* prologue: depth check first, then frame + depth spill + args.
      * Trap when the INCOMING depth is >= KAVIR_MAX_CALL_DEPTH (frame
-     * indices 0..KAVIR_MAX_CALL_DEPTH-1 are legal — identical rule in
+     * indices 0..KAVIR_MAX_CALL_DEPTH-1 are legal -- identical rule in
      * the interpreter and the oracle). */
     rc_depth = add_depth_stub(e, file, fn);
     if (rc_depth < 0) return -1;
@@ -1001,7 +1001,7 @@ static int write_elf(Emit *e, int start_pos, int code_end, int *entry_file_off) 
     put16(e, 0);                  /* e_shstrndx */
 
     /* --- program header: one R+X PT_LOAD covering the whole image ---
-     * (no RW segment yet: no globals, no mutable data — ADR-008 §6) */
+     * (no RW segment yet: no globals, no mutable data -- ADR-008 sec.6) */
     put32(e, ELF_PT_LOAD);
     put32(e, ELF_PF_R | ELF_PF_X);
     put64(e, 0);                /* p_offset */

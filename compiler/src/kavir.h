@@ -1,4 +1,4 @@
-/* kavir.h — shared definitions for the Kavir compiler (M4).
+/* kavir.h -- shared definitions for the Kavir compiler (M4).
  *
  * Pipeline: lexer -> parser -> checker -> IR -> (x86-64 encoder -> ELF)
  *                                                 -> (IR interpreter)
@@ -14,7 +14,7 @@
  * C layout (declaration order, natural alignment); uniform i32 tag at
  * word 0; values <= 8 bytes travel in ONE integer register exactly
  * like a SysV INTEGER eightbyte; values > 8 bytes ALWAYS travel
- * through memory (stack copy for arguments, hidden-pointer return) —
+ * through memory (stack copy for arguments, hidden-pointer return) --
  * a documented deviation from the psABI two-register class for
  * 9..16-byte aggregates. The surface remains TEMPORARY (ADR-008
  * section 0); semantics bind.
@@ -150,11 +150,11 @@ typedef struct {
 
 typedef enum {
     EX_INT, EX_NEG, EX_BIN, EX_IDENT, EX_CALL,   /* M1..M3 */
-    EX_STRUCT_LIT,  /* M4: Name { f: e, ... } — name = type name      */
-    EX_ENUM_CTOR,   /* M4: Name.Variant(e, ...) — name_b = variant     */
-    EX_OPT_CTOR,    /* M4: Option.None | Option.Some(e) — aux = tag    */
-    EX_FIELD,       /* M4: base.name — a = base expr; aux = word offset*/
-    EX_MATCH        /* M4: match e { arms } — a = scrutinee            */
+    EX_STRUCT_LIT,  /* M4: Name { f: e, ... } -- name = type name      */
+    EX_ENUM_CTOR,   /* M4: Name.Variant(e, ...) -- name_b = variant     */
+    EX_OPT_CTOR,    /* M4: Option.None | Option.Some(e) -- aux = tag    */
+    EX_FIELD,       /* M4: base.name -- a = base expr; aux = word offset*/
+    EX_MATCH        /* M4: match e { arms } -- a = scrutinee            */
 } ExprKind;
 typedef enum {
     BIN_ADD, BIN_SUB, BIN_MUL, BIN_DIV, BIN_REM,
@@ -330,6 +330,8 @@ typedef struct {
     int trapped;        /* 1 = trap occurred (trap_msg filled) */
     long long value;    /* main's return value when not trapped */
     char trap_msg[256]; /* full diagnostic line, trailing '\n' included */
+    int step_limited;   /* 1 = the optional step budget expired (harness
+                         * only; a legal divergent program, NOT a trap) */
 } InterpResult;
 
 /* Executes main. Returns 0 and fills out (value or trap) on a complete
@@ -340,6 +342,13 @@ int interp_run(const IrModule *mod, InterpResult *out);
 
 /* Discard print output (fuzz harnesses); trap/value behaviour unchanged. */
 void interp_set_quiet(int quiet);
+
+/* Optional per-run step budget (counted IR instructions). 0 = unlimited
+ * (the default; the CLI always runs unlimited). M4.1: the libFuzzer
+ * harness sets a budget because coverage-guided mutation can legally
+ * turn a bounded loop into a divergent one; the budget expires as
+ * out->step_limited = 1 (never a trap, never any output). */
+void interp_set_step_limit(unsigned long max_steps);
 
 /* ---------------- diagnostics ---------------- */
 
@@ -380,7 +389,7 @@ void ir_dump(const IrModule *mod, FILE *out);
  * M4 aggregate ABI (ADR-011, user decisions 2026-10-27): C layout,
  * word-granular lowering; values <= 8 bytes in one integer register
  * (two i32 words packed low/high like a SysV INTEGER eightbyte);
- * values > 8 bytes through memory — stack copy for arguments (each
+ * values > 8 bytes through memory -- stack copy for arguments (each
  * rounded to 8 bytes, leftmost stack argument at [rsp+0]), hidden
  * pointer in RDI for returns (remaining register arguments shift).
  *
