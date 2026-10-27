@@ -1,6 +1,7 @@
-phase: 3 (M1 + M1.1 + M2 + M3 + M3.1 COMPLETE — AUTHOR-APPROVED, not
-       independently verified; M4 next; third-party verification of
-       28ba9f1 pending; push of 8aa46cd and successors pending GH_TOKEN)
+phase: 3 (M1 + M1.1 + M2 + M3 + M3.1 + M4 COMPLETE — AUTHOR-APPROVED,
+       not independently verified; M5 BLOCKED until independent
+       verification per user instruction 2026-10-27; pushed to origin:
+       main = 365bc13 + backup tag backup-m4-20261027)
 gate: passed (user approved 2026-10-26, chat reply "قبوله")
 last_session: 2026-10-26
 covered_workstreams: [W1, W2, W3, W4, W5, W6, W7, W8]
@@ -211,7 +212,7 @@ decides.
 
 ## M4 STATUS (2026-10-27)
 
-M4 COMPLETE at the local commit (push still pending GH_TOKEN — token
+M4 COMPLETE; pushed to origin/main as 365bc13 (2026-10-27; token
 env-var-only, never written to any file). Scope per the user's four
 locked decisions (ADR-011, 2026-10-27): structs by value (C layout),
 enums with i32 tags, exhaustive match (flat patterns, i32 arms),

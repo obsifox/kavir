@@ -68,6 +68,12 @@
   SysV. Reversibility: internal convention, no persisted artifact —
   cheap to revisit; the FFI re-decision would need a two-register
   adapter for those sizes only.
+- EXPLICIT PASSING RULE (restated for README visibility): an
+  aggregate LARGER than 8 bytes ALWAYS travels through memory —
+  arguments as a stack copy in 8-byte units, returns via the hidden
+  pointer (RDI) — and is NEVER split across a register pair. This is
+  the user's locked decision (decision 2, 2026-10-27); changing it
+  would be an ADR-level re-decision, not a code cleanup.
 
 ## 3. Evidence
 

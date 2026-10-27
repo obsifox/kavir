@@ -21,6 +21,12 @@ Research first, then design. See STATE.md for the current phase and gate.
   interpreter AND an independently written Python oracle
   (compiler/tests/reference.py), byte-exact on stdout, stderr, and
   exit code.
+- Aggregate ABI (ADR-011): aggregate values (struct/enum/Option) up
+  to 8 bytes pass in ONE integer register; aggregate values LARGER
+  than 8 bytes ALWAYS pass through memory — stack copy in 8-byte
+  units for arguments, hidden-pointer return — and are never split
+  across two registers (deliberate deviation from the x86-64 psABI
+  9..16-byte class; user decision, 2026-10-27).
 - **The surface syntax is TEMPORARY.** Per the user's ordering rule,
   semantics are defined first and grammar is finalized last; do not
   write tutorials against the current grammar (ADR-008 section 0).
